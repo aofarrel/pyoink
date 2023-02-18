@@ -9,25 +9,26 @@ arg.add_argument('--submission_id', required=True)
 arg.add_argument('--workflow_name', default="myco", required=False)
 arg.add_argument('--workflow_id', required=True)
 arg.add_argument('--task', default="make_mask_and_diff", required=False)
-arg.add_argument('--cacheCopy', type=bool, default=True, required=False)
-arg.add_argument('--glob', type=bool, default=True, required=False)
+arg.add_argument('--cacheCopy', type=bool, default=False, required=False)
+arg.add_argument('--glob', type=bool, default=False, required=False)
 arg.add_argument('--file', default="*.diff", required=False)
 args = arg.parse_args()
 
 path = f"gs://{args.bucket}/submissions/{args.submission_id}/{args.workflow_name}/{args.workflow_id}/call-{args.task}/"
-print(f"Constructed path:\n{path}")
-shards = list(os.popen(f"gsutil ls {path}"))
-uris = []
 base = []
 if args.cacheCopy == True:
 	base.append("cacheCopy/")
 if args.glob == True:
 	base.append("glob*/")
 base.append(f"{args.file}")
+print(f'Constructed path:\n{path}shard-(whatever)/{"".join(base)}')
 
+shards = list(os.popen(f"gsutil ls {path}"))
+
+uris = []
 for shard in shards:
 	uri = shard[:-1] + "".join(base)
-	uris.append(uri)
+	uris.append(f'\"{uri}\"')
 
 if len(uris) > 998:
 	print("Splitting into smaller downloads...")
@@ -40,5 +41,5 @@ if len(uris) > 998:
 else:
 	uris_as_string = " ".join(uris)
 	command = f"gsutil -m cp {uris_as_string} ."
-	print(f"Running {command}\n\n")
-	os.system(command)
+	# doesn't seem to consistently work as a subshell, so just let the user copy-paste
+	print(f"Running the following command:\n\n{command}\n\n")
