@@ -12,6 +12,8 @@ parser = argparse.ArgumentParser(prog="pyoink", formatter_class=argparse.Argumen
                                                 REQUIRES you have gsutil set up and authenticated.""")
 parser.add_argument('-od', '--output_directory', required=False, default=".", type=str, \
     help='directory for all outputs (make sure it has enough space!)')
+parser.add_argument('-v', '--verbose', required=False, default=False, type=bool, \
+    help='print out gsutil download commands to stdout before running them')
 
 option_a = parser.add_argument_group("""************************\n
                                     Option A\n
@@ -44,30 +46,68 @@ option_b.add_argument('--cacheCopy', type=bool, default=False, help="(bool) is t
 option_b.add_argument('--glob', type=bool, default=False, help="(bool) does this output make use of WDL's glob()?")
 
 args = parser.parse_args()
-
-gs = args.job_manager_arrays_file
 od = args.output_directory
+if od[-1] != '/': od = od+'/'
+jm = args.job_manager_arrays_file
 
-if od[-1] != '/':
-    od = od+'/'
-
-def retrieve_data(gs):
+def read_file(jm):
     with open(gs) as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith('['):
-                line = line[1:]
-            if line.endswith(']'):
-                line = line[:-1]
-            line = re.sub(',', ' ', line)
-            try:
-                # this is easier than using the subprocess module
-                # because the resulting command has a ton of
-                # spaces, but generally subprocess is better practice
-                if os.system(f'gsutil -m cp {line} {od}') != 0:
-                    raise Exception('Darn!')
-            except:
-                print(f'{line} did not download')
-                
+    for line in f:
+        line = line.strip()
+        if line.startswith('['):
+            line = line[1:]
+        if line.endswith(']'):
+            line = line[:-1]
+        line = re.sub(',', ' ', line)
+    return gs_addresses
 
-retrieve_data(gs)
+def retrieve_data(gs_addresses):
+    uris_as_string = " ".join(gs_addresses)
+    try:
+        # this is easier than using the subprocess module
+        # because the resulting command has a ton of
+        # spaces, but generally subprocess is better practice
+        command = f"gsutil -m cp {uris_as_string} {od}"
+        print(f"Attempting the following command:\n {command}\n\n") if args.verbose else pass
+        if os.system(f'gsutil -m cp {uris_as_string} {od}') != 0:
+            raise Exception('Failed to download at least one file.')
+    except:
+        print(f'{line} did not download')
+
+
+
+if __name__ == '__main__':
+    if jm is not None:
+        # option A
+        # make sure the user isn't trying to use options A and B
+        if None not in (args.submission_id, args.workflow_id):
+            raise Exception("jm was passed in, but so was submission and/or workflow ids (see --help)")
+        else:
+            gs_addresses = read_file(jm)
+    else:
+        # option B
+        # make sure all non-default option B args are set
+        if None in (args.submission_id, args.workflow_id):
+            raise Exception("no jm file was passed in, but we dont have enough arguments for option B (see --help)")
+        else:
+            path = f"gs://{args.bucket}/submissions/{args.submission_id}/{args.workflow_name}/{args.workflow_id}/call-{args.task}/"
+            base = []
+            if args.cacheCopy == True: base.append("cacheCopy/")
+            if args.glob == True: base.append("glob*/")
+            base.append(f"{args.file}")
+            print(f'Constructed path:\n{path}shard-(whatever)/{"".join(base)}')
+            shards = list(os.popen(f"gsutil ls {path}"))
+            gs_addresses = []
+            for shard in shards:
+                uri = shard[:-1] + "".join(base)
+                gs_addresses.append(f'\"{uri}\"')
+
+    # check if we need multiple gsutil calls
+    if len(gs_addresses) > 998:
+        print("Splitting into smaller downloads...")
+        list_of_smallish_lists_of_uris = [uris[i:i + 998] for i in range(0, len(uris), 998)]
+        for smallish_list_of_uris in list_of_lists_of_uris:
+            retrieve_data(smallish_list_of_uris)
+    else:
+        retrieve_data(gs_addresses)
+
