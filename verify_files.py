@@ -1,7 +1,7 @@
 import os
 import argparse
 
-arg = argparse.ArgumentParser(prog = 'grab scattered terra outs', 
+arg = argparse.ArgumentParser(prog = 'pyoink verifier', 
 	description = "Verify you downloaded every sample's bits and pieces.")
 arg.add_argument('--vcf', type=bool, default=True)
 arg.add_argument('--diff', type=bool, default=True)
