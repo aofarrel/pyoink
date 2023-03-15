@@ -1,6 +1,7 @@
 import os 
 import re
 import argparse
+import subprocess
 
 parser = argparse.ArgumentParser(prog="pyoink", formatter_class=argparse.ArgumentDefaultsHelpFormatter,
                                                 description="""Download workflow outputs 
@@ -43,6 +44,7 @@ option_b.add_argument('--workflow_name', default="myco", help="""name of workflo
 option_b.add_argument('--workflow_id', help="ID of workflow as it appears in Terra")
 option_b.add_argument('--task', default="make_mask_and_diff", help="name of WDL task")
 option_b.add_argument('--file', default="*.diff", help="filename (asterisks are supported)")
+option_b.add_argument('--attempt2', type=bool, default=False, help="(bool) is this output from a second attempt of the task?")
 option_b.add_argument('--shards', type=bool, default=True, help="(bool) is this output from a scattered task? if true, gsutil ls will be run to find the number of shards")
 option_b.add_argument('--cacheCopy', type=bool, default=False, help="(bool) is this output cached from a previous run?")
 option_b.add_argument('--glob', type=bool, default=False, help="(bool) does this output make use of WDL's glob()?")
@@ -64,18 +66,28 @@ def read_file(thingy):
             gs_addresses.append(line)
     return gs_addresses
 
-def retrieve_data(gs_addresses):
+def retrieve_data(gs_addresses: list):
+    print(len(gs_addresses))
+    print(type(gs_addresses))
+    # first check for gsutil's 1000 argument limit
+    if len(gs_addresses) > 998:
+        print("Approaching gsutil's limit on number of arguments, splitting into smaller downloads...")
+        list_of_smallish_lists_of_uris = [gs_addresses[i:i + 499] for i in range(0, len(gs_addresses), 499)]
+        for smallish_list_of_uris in list_of_smallish_lists_of_uris:
+            #if args.verbose: print(f"Downloading this subset:\n {smallish_list_of_uris}")
+            retrieve_data(smallish_list_of_uris)
+    
+    # then, convert to string and check for MAX_ARG_STRLEN
     uris_as_string = " ".join(gs_addresses)
-    # this is easier than using the subprocess module
-    # because the resulting command has a ton of
-    # spaces, but generally subprocess is better practice
+    if len(uris_as_string) > 131000: # MAX_ARG_STRLEN minus 72
+        print("Approaching MAX_ARG_STRLEN, splitting into smaller downloads...")
+        list_of_smallish_lists_of_uris = [download_me[i:i + 499] for i in range(0, len(download_me), 499)]
+        for smallish_list_of_uris in list_of_smallish_lists_of_uris:
+            #if args.verbose: print(f"Downloading this subset:\n {smallish_list_of_uris}")
+            retrieve_data(smallish_list_of_uris)
     command = f"gsutil -m cp {uris_as_string} {od}"
-    if args.verbose:
-        print(f"Attempting the following command:\n {command}\n\n")
-    if os.system(f'gsutil -m cp {uris_as_string} {od}') != 0:
-        raise Exception('Failed to download at least one file.')
-
-
+    if args.verbose: print(f"Attempting the following command:\n {command}\n\n")
+    #subprocess.run(f'gsutil -m cp {uris_as_string} {od}', shell=True, capture_output=True, encoding="UTF-8")
 
 if __name__ == '__main__':
     if jm is not None:
@@ -95,6 +107,7 @@ if __name__ == '__main__':
             path = f"gs://{args.bucket}/submissions/{args.submission_id}/{args.workflow_name}/{args.workflow_id}/call-{args.task}/"
             base = []
             if args.cacheCopy == True: base.append("cacheCopy/")
+            if args.attempt2 == True: base.append("attempt-2/")
             if args.glob == True: base.append("glob*/")
             base.append(f"{args.file}")
             print(f'Constructed path:\n{path}shard-(whatever)/{"".join(base)}')
@@ -108,17 +121,13 @@ if __name__ == '__main__':
     all = set(gs_addresses)
     exclude = set(read_file(args.exclude))
     include = all - exclude
-    if verbose:
-        print("Full set of URIs:\n" + all)
-        print("URIs to exclude:\b" + exclude)
-        print("URIs that will be downloaded:\n" + include)
-    exit(0)
-    # check if we need multiple gsutil calls
-    if len(include) > 998:
-        print("Splitting into smaller downloads...")
-        list_of_smallish_lists_of_uris = [include[i:i + 998] for i in range(0, len(include), 998)]
-        for smallish_list_of_uris in list_of_smallish_lists_of_uris:
-            retrieve_data(smallish_list_of_uris)
-    else:
-        retrieve_data(include)
+    #if args.verbose:
+        #print(f"Full set of URIs:\n {all}")
+        #print(f"URIs to exclude:\n {exclude}")
+        #print(f"URIs that will be downloaded:\n {include}")
+    
+    # check if we need multiple gsutil calls to fall within the limits gsutil -m cp 
+    # additional checks for MAX_ARG_STRLEN etc are in retrieve_data())
+    download_me = list(include)
+    retrieve_data(download_me)
 
