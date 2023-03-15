@@ -14,6 +14,8 @@ parser.add_argument('-od', '--output_directory', required=False, default=".", ty
     help='directory for all outputs (make sure it has enough space!)')
 parser.add_argument('-v', '--verbose', required=False, default=False, type=bool, \
     help='print out gsutil download commands to stdout before running them')
+parser.add_argument('-e', '--exclude', required=False, \
+    help='file of gs URIs (one per line) to exclude when downloading')
 
 option_a = parser.add_argument_group("""\n
                                             Option A:
@@ -49,9 +51,9 @@ args = parser.parse_args()
 od = args.output_directory
 jm = args.job_manager_arrays_file
 
-def read_file(jm):
+def read_file(thingy):
     gs_addresses = []
-    with open(jm) as f:
+    with open(thingy) as f:
         for line in f:
             line = line.strip()
             if line.startswith('['):
@@ -100,14 +102,23 @@ if __name__ == '__main__':
             gs_addresses = []
             for shard in shards:
                 uri = shard[:-1] + "".join(base)
-                gs_addresses.append(f'\"{uri}\"')
+                gs_addresses.append(f'{uri}')
 
+    # get rid of anything that should be excluded
+    all = set(gs_addresses)
+    exclude = set(read_file(args.exclude))
+    include = all - exclude
+    if verbose:
+        print("Full set of URIs:\n" + all)
+        print("URIs to exclude:\b" + exclude)
+        print("URIs that will be downloaded:\n" + include)
+    exit(0)
     # check if we need multiple gsutil calls
-    if len(gs_addresses) > 998:
+    if len(include) > 998:
         print("Splitting into smaller downloads...")
-        list_of_smallish_lists_of_uris = [gs_addresses[i:i + 998] for i in range(0, len(gs_addresses), 998)]
+        list_of_smallish_lists_of_uris = [include[i:i + 998] for i in range(0, len(include), 998)]
         for smallish_list_of_uris in list_of_smallish_lists_of_uris:
             retrieve_data(smallish_list_of_uris)
     else:
-        retrieve_data(gs_addresses)
+        retrieve_data(include)
 
