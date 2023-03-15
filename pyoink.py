@@ -52,6 +52,7 @@ option_b.add_argument('--glob', type=bool, default=False, help="(bool) does this
 args = parser.parse_args()
 od = args.output_directory
 jm = args.job_manager_arrays_file
+verbose = args.verbose
 
 def read_file(thingy):
     gs_addresses = []
@@ -67,27 +68,29 @@ def read_file(thingy):
     return gs_addresses
 
 def retrieve_data(gs_addresses: list):
-    print(len(gs_addresses))
-    print(type(gs_addresses))
-    # first check for gsutil's 1000 argument limit
+    if verbose: print(f"retrieve_data() was passed a list of length {len(gs_addresses)}")
+    uris_as_string = " ".join(gs_addresses)
+
+    # first check for gsutil's 1000 argument limit (checks LIST length, not string length)
     if len(gs_addresses) > 998:
         print("Approaching gsutil's limit on number of arguments, splitting into smaller downloads...")
         list_of_smallish_lists_of_uris = [gs_addresses[i:i + 499] for i in range(0, len(gs_addresses), 499)]
         for smallish_list_of_uris in list_of_smallish_lists_of_uris:
-            #if args.verbose: print(f"Downloading this subset:\n {smallish_list_of_uris}")
+            #if verbose: print(f"Downloading this subset:\n {smallish_list_of_uris}")
             retrieve_data(smallish_list_of_uris)
     
-    # then, convert to string and check for MAX_ARG_STRLEN
-    uris_as_string = " ".join(gs_addresses)
-    if len(uris_as_string) > 131000: # MAX_ARG_STRLEN minus 72
+    # then check for MAX_ARG_STRLEN (checks STRING length, not list length)
+    elif len(uris_as_string) > 131000: # MAX_ARG_STRLEN minus 72
         print("Approaching MAX_ARG_STRLEN, splitting into smaller downloads...")
         list_of_smallish_lists_of_uris = [download_me[i:i + 499] for i in range(0, len(download_me), 499)]
         for smallish_list_of_uris in list_of_smallish_lists_of_uris:
-            #if args.verbose: print(f"Downloading this subset:\n {smallish_list_of_uris}")
+            #if verbose: print(f"Downloading this subset:\n {smallish_list_of_uris}")
             retrieve_data(smallish_list_of_uris)
-    command = f"gsutil -m cp {uris_as_string} {od}"
-    if args.verbose: print(f"Attempting the following command:\n {command}\n\n")
-    #subprocess.run(f'gsutil -m cp {uris_as_string} {od}', shell=True, capture_output=True, encoding="UTF-8")
+    # iff both checks pass, actually download (we do this in an else block to avoid downloading twice when recursing) 
+    else:
+        command = f"gsutil -m cp {uris_as_string} {od}"
+        if verbose: print(f"Attempting the following command:\n {command}\n\n")
+        #subprocess.run(f'gsutil -m cp {uris_as_string} {od}', shell=True, capture_output=True, encoding="UTF-8")
 
 if __name__ == '__main__':
     if jm is not None:
@@ -121,7 +124,7 @@ if __name__ == '__main__':
     all = set(gs_addresses)
     exclude = set(read_file(args.exclude))
     include = all - exclude
-    #if args.verbose:
+    #if verbose:
         #print(f"Full set of URIs:\n {all}")
         #print(f"URIs to exclude:\n {exclude}")
         #print(f"URIs that will be downloaded:\n {include}")
