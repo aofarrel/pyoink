@@ -17,6 +17,8 @@ parser.add_argument('-v', '--verbose', required=False, default=False, type=bool,
     help='print out gsutil download commands to stdout before running them')
 parser.add_argument('-e', '--exclude', required=False, \
     help='file of gs URIs (one per line) to exclude when downloading')
+parser.add_argument('--small-steps', required=False, default=False, type=bool, \
+    help='download files in batches of fifty (not recommended if you are downloading more than about 300 files in total)')
 
 option_a = parser.add_argument_group("""\n
                                             Option A:
@@ -48,13 +50,76 @@ option_b.add_argument('--attempt2', type=bool, default=False, help="(bool) is th
 option_b.add_argument('--shards', type=bool, default=True, help="(bool) is this output from a scattered task? if true, gsutil ls will be run to find the number of shards")
 option_b.add_argument('--cacheCopy', type=bool, default=False, help="(bool) is this output cached from a previous run?")
 option_b.add_argument('--glob', type=bool, default=False, help="(bool) does this output make use of WDL's glob()?")
+option_b.add_argument('--try_attempt2_on_failure', type=bool, default=False, help="(bool) if a file can't be downloaded, should we try looking for a second attempt? (useful for preempted tasks)")
 
 args = parser.parse_args()
 od = args.output_directory
 jm = args.job_manager_arrays_file
 verbose = args.verbose
 
+def list_to_set_consistently(some_list: list):
+    '''Surely the built-in methods should handle this... hmmm'''
+    sorted_list = sorted(some_list, reverse=True)
+    uniques = []
+    for thingy in sorted_list:
+        if thingy not in uniques:
+            uniques.append(thingy)
+    return {thing for thing in uniques}
+
+def grab_gs_address(single_line_string):
+    '''Extract gs:// address from lines that probably contain one.
+    This isn't perfect -- you can't pass gsutil's progress bars and
+    returning None might cause issues down the line.'''
+    #pattern = re.compile("gs:\/\/.+\b") # this works on Regexr but not here
+    if single_line_string.endswith("could not be transferred."):
+        return None
+    else:
+        pattern = re.compile("gs:\/\/.+[^...]")
+        try:
+            result = str(pattern.findall(single_line_string)[0])
+        except IndexError:
+            print(f"Warning -- could not extract gs address from this line: {single_line_string}")
+            return None
+        if result is None or result == "":
+            print(f"Warning -- could not extract gs address from this line: {single_line_string}")
+            return None
+        else:
+            return result
+
+def determine_what_downloaded(stderr_as_multi_line_string):
+    # called by parse_gsutil_stderr and main
+    exceptions = []
+    probable_successes = []
+    for line in (stderr_as_multi_line_string.splitlines()):
+        if line.startswith("CommandException"):
+            print(f"gsutil reported {line}")
+            gs = grab_gs_address(line)
+            if gs is not None:
+                exceptions.append(gs)
+        elif line.startswith("Copying "):
+            probable_successes.append(grab_gs_address(line))
+        else: # progress bars, etc
+            pass
+    # if no Copying... lines, probably 
+    # compare gs addresses in both arrays -- NoURLMatched already covered since that
+    # doesn't generate a Copying... line, but code below should handle other cases
+    exceptions_set = list_to_set_consistently(exceptions)
+    probable_successes_set = list_to_set_consistently(probable_successes)
+    known_successes_set = probable_successes_set - exceptions_set
+    with open("failed_to_download.txt", "a") as f:
+        f.writelines(f"{uri}\n" for uri in list(exceptions_set))
+    with open("downloaded_successfully.txt", "a") as f:
+        f.writelines(f"{uri}\n" for uri in list(known_successes_set))
+    return [list(known_successes_set), exceptions]
+
+def parse_gsutil_stderr(stderr_file):
+    with open(stderr_file) as f:
+        list_of_lines = f.readlines()
+        stderr_as_multiline_string = "\n".join([line for line in list_of_lines])
+        return determine_what_downloaded(stderr_as_multiline_string)
+
 def read_file(thingy):
+    '''Reads input file for the JM (option A) use case, and the exclusion file for both use cases.'''
     gs_addresses = []
     with open(thingy) as f:
         for line in f:
@@ -68,29 +133,48 @@ def read_file(thingy):
     return gs_addresses
 
 def retrieve_data(gs_addresses: list):
-    if verbose: print(f"retrieve_data() was passed a list of length {len(gs_addresses)}")
+    ''' Actually pull gs:// addresses, after checking it's not too many at a time. This function
+    is recursive if a lot of files need to be downloaded.'''
     uris_as_string = " ".join(gs_addresses)
 
     # first check for gsutil's 1000 argument limit (checks LIST length, not string length)
     if len(gs_addresses) > 998:
-        print("Approaching gsutil's limit on number of arguments, splitting into smaller downloads...")
+        if verbose: print("Approaching gsutil's limit on number of arguments, splitting into smaller batches...")
         list_of_smallish_lists_of_uris = [gs_addresses[i:i + 499] for i in range(0, len(gs_addresses), 499)]
+        for smallish_list_of_uris in list_of_smallish_lists_of_uris:
+            #if verbose: print(f"Downloading this subset:\n {smallish_list_of_uris}")
+            retrieve_data(smallish_list_of_uris)
+    
+    # now check for the debugging small_steps argument (checks LIST length, not string length)
+    if len(gs_addresses) > 50 and args.small_steps is True:
+        if verbose: print("small-steps was passed in, so we'll be downloading only 50 files at a time...")
+        list_of_smallish_lists_of_uris = [gs_addresses[i:i + 50] for i in range(0, len(gs_addresses), 50)]
         for smallish_list_of_uris in list_of_smallish_lists_of_uris:
             #if verbose: print(f"Downloading this subset:\n {smallish_list_of_uris}")
             retrieve_data(smallish_list_of_uris)
     
     # then check for MAX_ARG_STRLEN (checks STRING length, not list length)
     elif len(uris_as_string) > 131000: # MAX_ARG_STRLEN minus 72
-        print("Approaching MAX_ARG_STRLEN, splitting into smaller downloads...")
+        if verbose: print("Approaching MAX_ARG_STRLEN, splitting into smaller batches...")
         list_of_smallish_lists_of_uris = [download_me[i:i + 499] for i in range(0, len(download_me), 499)]
         for smallish_list_of_uris in list_of_smallish_lists_of_uris:
             #if verbose: print(f"Downloading this subset:\n {smallish_list_of_uris}")
             retrieve_data(smallish_list_of_uris)
-    # iff both checks pass, actually download (we do this in an else block to avoid downloading twice when recursing) 
+   
+    # iff all checks pass, actually download (we do this in an else block to avoid downloading twice when recursing) 
     else:
         command = f"gsutil -m cp {uris_as_string} {od}"
-        if verbose: print(f"Attempting the following command:\n {command}\n\n")
-        #subprocess.run(f'gsutil -m cp {uris_as_string} {od}', shell=True, capture_output=True, encoding="UTF-8")
+        if verbose:
+            print(f"Attempting to download {len(gs_addresses)} files via the following command:\n {command}\n\n")
+        else:
+            print(f"Downloading {len(gs_addresses)} files, please wait...")
+        this_download = subprocess.run(f'gsutil -m cp {uris_as_string} {od}', shell=True, capture_output=True, encoding="UTF-8")
+        # for some reason gsutil puts everything in stderr and nothing in stdout, so we have to do a lot of parsing to find CommandExceptions
+        successes_and_exceptions = determine_what_downloaded(this_download.stderr)
+        successes = successes_and_exceptions[0]
+        exceptions = successes_and_exceptions[1]
+        print(f"Attempted {len(gs_addresses)} downloads: {len(successes)} succeeded, {len(exceptions)} failed, gsutil returned {this_download.returncode}.")
+
 
 if __name__ == '__main__':
     if jm is not None:
@@ -99,7 +183,6 @@ if __name__ == '__main__':
         if args.submission_id is not None or args.workflow_id is not None:
             raise Exception("jm was passed in, but so was submission and/or workflow ids (see --help)")
         else:
-            print(args.submission_id, args.workflow_id)
             gs_addresses = read_file(jm)
     else:
         # option B
@@ -121,16 +204,16 @@ if __name__ == '__main__':
                 gs_addresses.append(f'{uri}')
 
     # get rid of anything that should be excluded
-    all = set(gs_addresses)
-    exclude = set(read_file(args.exclude))
-    include = all - exclude
-    #if verbose:
-        #print(f"Full set of URIs:\n {all}")
-        #print(f"URIs to exclude:\n {exclude}")
-        #print(f"URIs that will be downloaded:\n {include}")
-    
-    # check if we need multiple gsutil calls to fall within the limits gsutil -m cp 
-    # additional checks for MAX_ARG_STRLEN etc are in retrieve_data())
-    download_me = list(include)
+    if args.exclude is not None:
+        all = set(gs_addresses)
+        exclude = set(read_file(args.exclude))
+        include = all - exclude
+        if verbose:
+            print(f"{len(all)} possible URIs detected.")
+            print(f"{len(exclude)} URIs in the exclusion file.")
+        print(f"{len(include)} URIs will be downloaded -- but maybe not all at once.")
+        download_me = list(include)
+    else:
+        download_me = gs_addresses
     retrieve_data(download_me)
 
