@@ -175,7 +175,7 @@ def retrieve_data(gs_addresses: list):
         successes_and_exceptions = determine_what_downloaded(this_download.stderr)
         successes = successes_and_exceptions[0]
         exceptions = successes_and_exceptions[1]
-        if args.try_attempt2_on_failure and args.job_manager_arrays_file != "attempt2.tmp":
+        if len(exceptions) > 0 and args.try_attempt2_on_failure and args.job_manager_arrays_file != "attempt2.tmp":
             print(f"Attempted {len(gs_addresses)} downloads: {len(successes)} succeeded, {len(exceptions)} failed, gsutil returned {this_download.returncode}.")
             print(f"Looking for files in attempt-2/ folders...")
             with open("attempt2.tmp", "a") as f:
@@ -183,11 +183,9 @@ def retrieve_data(gs_addresses: list):
                     possible_output_after_preempting = failed_gs_uri.removesuffix(args.file) + "attempt-2/" + args.file + "\n"
                     f.write(possible_output_after_preempting)
             # this call mixes a group A and a group B input variable -- but we'll allow that because it helps stop us from recursing infinitely
-            with subprocess.Popen(f'python3 foo.py --job_manager_arrays_file attempt2.tmp --small-steps', shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as recurse:
+            with subprocess.Popen(f'python3 pyoink.py --job_manager_arrays_file attempt2.tmp --small-steps True', shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as recurse:
                 for output in recurse.stdout:
-                    print(output.decode("UTF-8"))
-                print("for")
-            print("with")
+                    print(f'--->{output.decode("UTF-8")}')
             subprocess.run('rm attempt2.tmp', shell=True)
             print("Finished checking for attempt 2.")
         else:
