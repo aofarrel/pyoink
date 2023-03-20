@@ -6,7 +6,7 @@ arg = argparse.ArgumentParser(prog = 'pyoink verifier',
 arg.add_argument('--vcf', type=bool, default=True)
 arg.add_argument('--diff', type=bool, default=True)
 arg.add_argument('--bedgraph', type=bool, default=True)
-arg.add_argument('--fastqc', type=bool, default=True)
+arg.add_argument('--fastqc', type=bool, default=False)
 arg.add_argument('--number_of_inputs', type=int, default=1000)
 args = arg.parse_args()
 
