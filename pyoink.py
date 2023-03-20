@@ -50,7 +50,7 @@ option_b.add_argument('--attempt2', type=bool, default=False, help="(bool) is th
 option_b.add_argument('--shards', type=bool, default=True, help="(bool) is this output from a scattered task? if true, gsutil ls will be run to find the number of shards")
 option_b.add_argument('--cacheCopy', type=bool, default=False, help="(bool) is this output cached from a previous run?")
 option_b.add_argument('--glob', type=bool, default=False, help="(bool) does this output make use of WDL's glob()?")
-option_b.add_argument('--try_attempt2_on_failure', type=bool, default=False, help="(bool) if a file can't be downloaded, should we try looking for a second attempt? (useful for preempted tasks)")
+option_b.add_argument('--try_attempt2_on_failure', type=bool, default=True, help="(bool) if a file can't be downloaded, should we try looking for a second attempt? (useful for preempted tasks)")
 
 args = parser.parse_args()
 od = args.output_directory
@@ -87,6 +87,8 @@ def grab_gs_address(single_line_string):
             return result
 
 def determine_what_downloaded(stderr_as_multi_line_string):
+    '''Returns a list of lists. The first list is the gs URIs that successfully DL'd.
+    The second list is the gs URIs that failed. Both will be written to files.'''
     # called by parse_gsutil_stderr and main
     exceptions = []
     probable_successes = []
@@ -173,7 +175,20 @@ def retrieve_data(gs_addresses: list):
         successes_and_exceptions = determine_what_downloaded(this_download.stderr)
         successes = successes_and_exceptions[0]
         exceptions = successes_and_exceptions[1]
-        print(f"Attempted {len(gs_addresses)} downloads: {len(successes)} succeeded, {len(exceptions)} failed, gsutil returned {this_download.returncode}.")
+        if args.try_attempt2_on_failure and not args.attempt2: # we do not want to endlessly retry things!
+            print(f"Attempted {len(gs_addresses)} downloads: {len(successes)} succeeded, {len(exceptions)} failed, gsutil returned {this_download.returncode}.")
+            print(f"Looking for files in attempt-2/ folders...")
+            with open("attempt2.tmp", "a") as f:
+                for failed_gs_uri in exceptions:
+                    possible_output_after_preempting = failed_gs_uri.removesuffix(args.file) + "attempt-2/" + args.file + "\n"
+                    f.write(possible_output_after_preempting)
+            # this call mixes a group A and a group B input variable -- but we'll allow that because it helps stop us from recursing infinitely
+            with subprocess.Popen(f'python3 foo.py -jm attempt2.tmp --attempt2 True', shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as recurse:
+                for output in recurse.stdout:
+                    print(output.decode("UTF-8"))
+            #subprocess.run('rm attempt2.tmp', shell=True)
+        else:
+            print(f"Attempted {len(gs_addresses)} downloads: {len(successes)} succeeded, {len(exceptions)} failed, gsutil returned {this_download.returncode}.")
 
 
 if __name__ == '__main__':
