@@ -1,12 +1,12 @@
 import os
 import argparse
 
-arg = argparse.ArgumentParser(prog = 'grab scattered terra outs', 
+arg = argparse.ArgumentParser(prog = 'pyoink verifier', 
 	description = "Verify you downloaded every sample's bits and pieces.")
 arg.add_argument('--vcf', type=bool, default=True)
 arg.add_argument('--diff', type=bool, default=True)
 arg.add_argument('--bedgraph', type=bool, default=True)
-arg.add_argument('--fastqc', type=bool, default=True)
+arg.add_argument('--fastqc', type=bool, default=False)
 arg.add_argument('--number_of_inputs', type=int, default=1000)
 args = arg.parse_args()
 
@@ -28,7 +28,7 @@ if args.fastqc is True:
 		if file.endswith(".html"):
 			htmls.append(file)
 
-print(f"Total of {len(diffs)} diff files found.")
+print(f"Total of {len(diffs)} diffs, {len(vcfs)} vcfs, {len(bgs)} bedgraphs.")
 if args.vcf is True and len(vcfs) != len(diffs):
 	print(f"WARNING: {len(vcfs)} VCFs, {len(diffs)} diffs")
 if args.bedgraph is True and len(diffs) != len(bgs):
