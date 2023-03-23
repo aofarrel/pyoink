@@ -28,7 +28,7 @@ if args.fastqc is True:
 		if file.endswith(".html"):
 			htmls.append(file)
 
-print(f"Total of {len(diffs)} diff files found.")
+print(f"Total of {len(diffs)} diffs, {len(vcfs)} vcfs, {len(bgs)} bedgraphs.")
 if args.vcf is True and len(vcfs) != len(diffs):
 	print(f"WARNING: {len(vcfs)} VCFs, {len(diffs)} diffs")
 if args.bedgraph is True and len(diffs) != len(bgs):
