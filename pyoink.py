@@ -13,11 +13,11 @@ parser = argparse.ArgumentParser(prog="pyoink", formatter_class=argparse.Argumen
                                                 REQUIRES you have gsutil set up and authenticated.""")
 parser.add_argument('-od', '--output_directory', required=False, default=".", type=str, \
     help='directory for all outputs (make sure it has enough space!)')
-parser.add_argument('-v', '--verbose', required=False, default=False, type=bool, action='store_true', \
+parser.add_argument('-v', '--verbose', required=False, action='store_true', \
     help='print out gsutil download commands to stdout before running them')
 parser.add_argument('-e', '--exclude', required=False, \
     help='file of gs URIs (one per line) to exclude when downloading')
-parser.add_argument('--small-steps', required=False, default=False, type=bool, action='store_true', \
+parser.add_argument('--small-steps', required=False, action='store_true', \
     help='download files in batches of fifty (not recommended if you are downloading more than about 300 files in total)')
 
 option_a = parser.add_argument_group("""\n
@@ -46,11 +46,11 @@ option_b.add_argument('--workflow_name', default="myco", help="""name of workflo
 option_b.add_argument('--workflow_id', help="ID of workflow as it appears in Terra")
 option_b.add_argument('--task', default="make_mask_and_diff", help="name of WDL task")
 option_b.add_argument('--file', default="*.diff", help="filename (asterisks are supported)")
-option_b.add_argument('--attempt2', type=bool, default=False, action='store_true', help="(bool) is this output from a second attempt of the task?")
-option_b.add_argument('--shards', type=bool, default=True, action='store_true', help="(bool) is this output from a scattered task? if true, gsutil ls will be run to find the number of shards")
-option_b.add_argument('--cacheCopy', type=bool, default=False, action='store_true', help="(bool) is this output cached from a previous run?")
-option_b.add_argument('--glob', type=bool, default=False, action='store_true', help="(bool) does this output make use of WDL's glob()?")
-option_b.add_argument('--try_attempt2_on_failure', type=bool, default=True, action='store_true', help="(bool) if a file can't be downloaded, should we try looking for a second attempt? (useful for preempted tasks)")
+option_b.add_argument('--attempt2', type=bool, default=False, help="(bool) is this output from a second attempt of the task?")
+option_b.add_argument('--shards', type=bool, default=True, help="(bool) is this output from a scattered task? if true, gsutil ls will be run to find the number of shards")
+option_b.add_argument('--cacheCopy', type=bool, default=False, help="(bool) is this output cached from a previous run?")
+option_b.add_argument('--glob', type=bool, default=False, help="(bool) does this output make use of WDL's glob()?")
+option_b.add_argument('--try_attempt2_on_failure', type=bool, default=True, help="(bool) if a file can't be downloaded, should we try looking for a second attempt? (useful for preempted tasks)")
 
 args = parser.parse_args()
 od = args.output_directory
@@ -183,7 +183,7 @@ def retrieve_data(gs_addresses: list):
                     possible_output_after_preempting = failed_gs_uri.removesuffix(args.file) + "attempt-2/" + args.file + "\n"
                     f.write(possible_output_after_preempting)
             # this call mixes a group A and a group B input variable -- but we'll allow that because it helps stop us from recursing infinitely
-            with subprocess.Popen(f'python3 pyoink.py --job_manager_arrays_file attempt2.tmp --small-steps True', shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as recurse:
+            with subprocess.Popen(f'python3 pyoink.py --job_manager_arrays_file attempt2.tmp', shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as recurse:
                 for output in recurse.stdout:
                     print(f'--->{output.decode("UTF-8")}')
             subprocess.run('rm attempt2.tmp', shell=True)
