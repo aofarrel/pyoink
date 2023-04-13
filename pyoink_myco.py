@@ -13,14 +13,14 @@ parser = argparse.ArgumentParser(prog="pyoink", formatter_class=argparse.Argumen
                                                 on whether or not you can load Job Manager
                                                 (which tends to break if you scatter >2000x).
                                                 REQUIRES you have gsutil set up and authenticated.""")
-parser.add_argument('--submission_id', help="submission ID as it appears in Terra")
-parser.add_argument('--workflow_id', help="ID of workflow as it appears in Terra")
+parser.add_argument('--submission_id', help="submission ID as it appears in Terra", required=True)
+parser.add_argument('--workflow_id', help="ID of workflow as it appears in Terra", required=True)
 args = parser.parse_args()
 
 # this is done in order of the smallest downloads first
 
 #### download pull reports ####
-with subprocess.Popen(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "pull_reports.txt" --task "cat_reports"', 
+with subprocess.Popen(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "pull_reports.txt" --task "cat_reports" --not_scattered', 
                         shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as pyoink_tbprf:
     for output in pyoink_tbprf.stdout:
         print(f'pyoink_report-->{output.decode("UTF-8")}')
@@ -38,10 +38,8 @@ subprocess.run('mv failed_to_download.txt failed_to_download_tbprf.txt', shell=T
 print("Finished pulling TBProfiler JSONs.")
 
 #### download diffs ####
-with subprocess.Popen(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id}', 
-                        shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as pyoink_diff:
-    for output in pyoink_diff.stdout:
-        print(f'pyoink_diff-->{output.decode("UTF-8")}')
+subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id}', 
+                        shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_diff.txt', shell=True)
 print("Finished pulling diffs.")
 
@@ -49,7 +47,7 @@ print("Finished pulling diffs.")
 with subprocess.Popen(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "*.bedgraph""', 
                         shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as pyoink_bdgrph:
     for output in pyoink_bdgrph.stdout:
-        print(f'pyoink_bdgrph-->{output.decode("UTF-8")}')
+        print(f'pyoink_bdgrph-->{output.decode("UTF-8")}', end="") # use end because stdout has a newline already
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_bdgrph.txt', shell=True)
 print("Finished pulling bedgraphs.")
 

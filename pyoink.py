@@ -6,11 +6,25 @@ import subprocess
 parser = argparse.ArgumentParser(prog="pyoink", formatter_class=argparse.ArgumentDefaultsHelpFormatter,
                                                 description="""Download workflow outputs 
                                                 from Terra painlessly. Automatically splits
-                                                very large downloads into batches of 998. 
-                                                Has two modes of functioning, depending
-                                                on whether or not you can load Job Manager
-                                                (which tends to break if you scatter >2000x).
-                                                REQUIRES you have gsutil set up and authenticated.""")
+                                                very large downloads into smaller batches. Gets your
+                                                scattered task outputs even when Terra's UI breaks.
+                                                Keeps track of what downloaded and what didn't.
+                                                Restart functionality (via --exclude and a previous
+                                                run's downloaded_successfully file) so you don't need
+                                                to start over if your computer disconnects from the net.
+
+                                                Pyoink can download files by either inputting a
+                                                text file full of gs URIs (useful if you can load Job
+                                                Manager), or by inputting information about the task
+                                                you want to pull outputs from (useful when Job Manager's
+                                                UI breaks, which tends to happen if a workflow launches
+                                                more than about 4000 VMs). In the second case, pyoink
+                                                will automatically find scattered task outputs and
+                                                outputs from preempted VMs.
+
+                                                Pyoink REQUIRES you have gsutil set up, authenticated,
+                                                and on your path.""",
+                                                epilog="Author: Ash O'Farrell (UCSC Pathogen Genomics)")
 parser.add_argument('-od', '--output_directory', required=False, default=".", type=str, \
     help='directory for all outputs (make sure it has enough space!)')
 parser.add_argument('-v', '--verbose', required=False, action='store_true', \
@@ -46,11 +60,11 @@ option_b.add_argument('--workflow_name', default="myco", help="""name of workflo
 option_b.add_argument('--workflow_id', help="ID of workflow as it appears in Terra")
 option_b.add_argument('--task', default="make_mask_and_diff", help="name of WDL task")
 option_b.add_argument('--file', default="*.diff", help="filename (asterisks are supported)")
-option_b.add_argument('--attempt2', type=bool, default=False, help="(bool) is this output from a second attempt of the task?")
-option_b.add_argument('--shards', type=bool, default=True, help="(bool) is this output from a scattered task? if true, gsutil ls will be run to find the number of shards")
-option_b.add_argument('--cacheCopy', type=bool, default=False, help="(bool) is this output cached from a previous run?")
-option_b.add_argument('--glob', type=bool, default=False, help="(bool) does this output make use of WDL's glob()?")
-option_b.add_argument('--try_attempt2_on_failure', type=bool, default=True, help="(bool) if a file can't be downloaded, should we try looking for a second attempt? (useful for preempted tasks)")
+
+option_b.add_argument('--not_scattered', action="store_true", help="outputs are not from a scattered task (skips running gsutil ls)")
+option_b.add_argument('--cacheCopy', action="store_true", help="is this output cached from a previous run?")
+option_b.add_argument('--glob', action="store_true", help="does this output make use of WDL's glob()?")
+option_b.add_argument('--do_not_attempt2_on_failure', action="store_true", help="do not check for attempt-2 folders (ie, assume your task is not using preemptibles)")
 
 args = parser.parse_args()
 od = args.output_directory
@@ -70,10 +84,10 @@ def grab_gs_address(single_line_string):
     '''Extract gs:// address from lines that probably contain one.
     This isn't perfect -- you can't pass gsutil's progress bars and
     returning None might cause issues down the line.'''
-    #pattern = re.compile("gs:\/\/.+\b") # this works on Regexr but not here
     if single_line_string.endswith("could not be transferred."):
         return None
     else:
+        #pattern = re.compile("gs:\/\/.+\b") # this works on Regexr but not here
         pattern = re.compile("gs:\/\/.+[^...]")
         try:
             result = str(pattern.findall(single_line_string)[0])
@@ -175,7 +189,7 @@ def retrieve_data(gs_addresses: list):
         successes_and_exceptions = determine_what_downloaded(this_download.stderr)
         successes = successes_and_exceptions[0]
         exceptions = successes_and_exceptions[1]
-        if len(exceptions) > 0 and args.try_attempt2_on_failure and args.job_manager_arrays_file != "attempt2.tmp":
+        if len(exceptions) > 0 and args.job_manager_arrays_file != "attempt2.tmp" and not args.do_not_attempt2_on_failure:
             print(f"Attempted {len(gs_addresses)} downloads: {len(successes)} succeeded, {len(exceptions)} failed, gsutil returned {this_download.returncode}.")
             print(f"Looking for files in attempt-2/ folders...")
             with open("attempt2.tmp", "a") as f:
@@ -209,15 +223,19 @@ if __name__ == '__main__':
             path = f"gs://{args.bucket}/submissions/{args.submission_id}/{args.workflow_name}/{args.workflow_id}/call-{args.task}/"
             base = []
             if args.cacheCopy == True: base.append("cacheCopy/")
-            if args.attempt2 == True: base.append("attempt-2/")
+            #if args.attempt2 == True: base.append("attempt-2/")
             if args.glob == True: base.append("glob*/")
             base.append(f"{args.file}")
-            print(f'Constructed path:\n{path}shard-(whatever)/{"".join(base)}')
-            shards = list(os.popen(f"gsutil ls {path}"))
-            gs_addresses = []
-            for shard in shards:
-                uri = shard[:-1] + "".join(base)
-                gs_addresses.append(f'{uri}')
+            if args.not_scattered == False:
+                print(f'Constructed path:\n{path}shard-(whatever)/{"".join(base)}')
+                shards = list(os.popen(f"gsutil ls {path}"))
+                gs_addresses = []
+                for shard in shards:
+                    uri = shard[:-1] + "".join(base)
+                    gs_addresses.append(f'{uri}')
+            else:
+                gs_addresses = [f'{path}{"".join(base)}']
+                print(f'Constructed path:\n {gs_addresses[0]}')
 
     # get rid of anything that should be excluded
     if args.exclude is not None:
