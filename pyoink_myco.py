@@ -2,6 +2,7 @@
 # hardcoded for myco_sra
 
 import os 
+import sys
 import argparse
 import subprocess
 
@@ -18,21 +19,16 @@ parser.add_argument('--workflow_id', help="ID of workflow as it appears in Terra
 args = parser.parse_args()
 
 # this is done in order of the smallest downloads first
-
-#### download pull reports ####
-with subprocess.Popen(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "pull_reports.txt" --task "cat_reports" --not_scattered', 
-                        shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as pyoink_tbprf:
-    for output in pyoink_tbprf.stdout:
-        print(f'pyoink_report-->{output.decode("UTF-8")}')
+#### download pull report ####
+subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "pull_reports.txt" --task "cat_reports" --not_scattered', 
+                        shell=True, stdout=+sys.stdout, stderr=subprocess.STDOUT)
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_report.txt', shell=True)
 subprocess.run('mv failed_to_download.txt failed_to_download_report.txt', shell=True)
 print("Finished pulling the SRA pull report file.")
 
 #### download tbprofiler jsons ####
-with subprocess.Popen(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "results/*.json" --task "profile"', 
-                        shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as pyoink_tbprf:
-    for output in pyoink_tbprf.stdout:
-        print(f'pyoink_tbprf-->{output.decode("UTF-8")}')
+subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "results/*.json" --task "profile"', 
+                        shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_tbprf.txt', shell=True)
 subprocess.run('mv failed_to_download.txt failed_to_download_tbprf.txt', shell=True)
 print("Finished pulling TBProfiler JSONs.")
@@ -44,17 +40,13 @@ subprocess.run('mv downloaded_successfully.txt downloaded_successfully_diff.txt'
 print("Finished pulling diffs.")
 
 #### download bedgraphs ####
-with subprocess.Popen(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "*.bedgraph""', 
-                        shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as pyoink_bdgrph:
-    for output in pyoink_bdgrph.stdout:
-        print(f'pyoink_bdgrph-->{output.decode("UTF-8")}', end="") # use end because stdout has a newline already
+subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "*.bedgraph""', 
+                        shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_bdgrph.txt', shell=True)
 print("Finished pulling bedgraphs.")
 
 #### download vcfs ####
-with subprocess.Popen(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "*.vcf" --task "varcall_with_array"', 
-                        shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as pyoink_vcf:
-    for output in pyoink_vcf.stdout:
-        print(f'pyoink_vcf-->{output.decode("UTF-8")}')
+with subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "*.vcf" --task "varcall_with_array"', 
+                        shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_vcf.txt', shell=True)
 print("Finished pulling vcfs.")
