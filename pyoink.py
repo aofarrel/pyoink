@@ -28,7 +28,9 @@ parser = argparse.ArgumentParser(prog="pyoink", formatter_class=argparse.Argumen
 parser.add_argument('-od', '--output_directory', required=False, default=".", type=str, \
     help='directory for all outputs (make sure it has enough space!)')
 parser.add_argument('-v', '--verbose', required=False, action='store_true', \
-    help='print out gsutil download commands to stdout before running them')
+    help='print out status of each call to gsutil cp')
+parser.add_argument('-vv', '--veryverbose', required=False, action='store_true', \
+    help='print out gsutil download commands to stdout before running them, and status of each call to gsutil cp')
 parser.add_argument('-e', '--exclude', required=False, \
     help='file of gs URIs (one per line) to exclude when downloading')
 parser.add_argument('--small-steps', required=False, action='store_true', \
@@ -69,7 +71,17 @@ option_b.add_argument('--do_not_attempt2_on_failure', action="store_true", help=
 args = parser.parse_args()
 od = args.output_directory
 jm = args.job_manager_arrays_file
-verbose = args.verbose
+if args.veryverbose is True:
+    veryverbose = True
+    verbose = True
+elif args.verbose is True:
+    veryverbose = False
+    verbose = True
+else:
+    veryverbose = False
+    verbose = False
+
+global_successes = []
 
 def list_to_set_consistently(some_list: list):
     '''Surely the built-in methods should handle this... hmmm'''
@@ -81,7 +93,7 @@ def list_to_set_consistently(some_list: list):
     return {thing for thing in uniques}
 
 def grab_gs_address(single_line_string):
-    '''Extract gs:// address from lines that probably contain one.
+    '''Extract gs:// address from gsutil stderr line that probably contain one.
     This isn't perfect -- you can't pass gsutil's progress bars and
     returning None might cause issues down the line.'''
     if single_line_string.endswith("could not be transferred."):
@@ -108,7 +120,7 @@ def determine_what_downloaded(stderr_as_multi_line_string):
     probable_successes = []
     for line in (stderr_as_multi_line_string.splitlines()):
         if line.startswith("CommandException"):
-            print(f"gsutil reported {line}")
+            if verbose: print(f"gsutil reported {line}")
             gs = grab_gs_address(line)
             if gs is not None:
                 exceptions.append(gs)
@@ -186,9 +198,12 @@ def retrieve_data(gs_addresses: list):
             print(f"Downloading {len(gs_addresses)} files, please wait...")
         this_download = subprocess.run(f'gsutil -m cp {uris_as_string} {od}', shell=True, capture_output=True, encoding="UTF-8")
         # for some reason gsutil puts everything in stderr and nothing in stdout, so we have to do a lot of parsing to find CommandExceptions
+        # todo: we could do even more parsing and subprocess.check_call to maybe get gsutil's progress bars!
+        # see: https://stackoverflow.com/questions/33028298/prevent-string-being-printed-python
         successes_and_exceptions = determine_what_downloaded(this_download.stderr)
         successes = successes_and_exceptions[0]
         exceptions = successes_and_exceptions[1]
+        global_successes.append(successes)
         if len(exceptions) > 0 and args.job_manager_arrays_file != "attempt2.tmp" and not args.do_not_attempt2_on_failure:
             print(f"Attempted {len(gs_addresses)} downloads: {len(successes)} succeeded, {len(exceptions)} failed, gsutil returned {this_download.returncode}.")
             print(f"Looking for files in attempt-2/ folders...")
@@ -249,5 +264,6 @@ if __name__ == '__main__':
         download_me = list(include)
     else:
         download_me = gs_addresses
+    #global expected_number_of_downloads = len(download_me)
     retrieve_data(download_me)
 
