@@ -16,56 +16,57 @@ parser = argparse.ArgumentParser(prog="pyoink", formatter_class=argparse.Argumen
                                                 REQUIRES you have gsutil set up and authenticated.""")
 parser.add_argument('--submission_id', help="submission ID as it appears in Terra", required=True)
 parser.add_argument('--workflow_id', help="ID of workflow as it appears in Terra", required=True)
+parser.add_argument('--bucket', default="fc-caa84e5a-8ef7-434e-af9c-feaf6366a042")
 args = parser.parse_args()
 
 # this is done in order of the smallest downloads first
 #### download reports ####
-subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "pull_reports.txt" --task "cat_reports" --not_scattered', 
+subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --bucket {args.bucket} --workflow_id {args.workflow_id} --file "pull_reports.txt" --task "cat_reports" --not_scattered', 
                         shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_pull.txt', shell=True)
 subprocess.run('mv failed_to_download.txt failed_to_download_pull.txt', shell=True)
 print("Finished pulling the SRA pull report file.")
 
-subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "strain_reports.txt" --task "cat_strains" --not_scattered', 
+subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --bucket {args.bucket} --workflow_id {args.workflow_id} --file "strain_reports.txt" --task "cat_strains" --not_scattered', 
                         shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_strain.txt', shell=True)
 subprocess.run('mv failed_to_download.txt failed_to_download_strain.txt', shell=True)
 print("Finished pulling the strain report file.")
 
-subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "resistance_reports.txt" --task "resistance_reports" --not_scattered', 
+subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --bucket {args.bucket} --workflow_id {args.workflow_id} --file "resistance_reports.txt" --task "resistance_reports" --not_scattered', 
                         shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_resistance.txt', shell=True)
 subprocess.run('mv failed_to_download.txt failed_to_download_resistance.txt', shell=True)
 print("Finished pulling the resistance report file.")
 
 #### download tbprofiler jsons ####
-subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "results/*.json" --task "profile"', 
+subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --bucket {args.bucket} --workflow_id {args.workflow_id} --file "results/*.json" --task "profile"', 
                         shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_tbprf.txt', shell=True)
 subprocess.run('mv failed_to_download.txt failed_to_download_tbprf.txt', shell=True)
 print("Finished pulling TBProfiler JSONs.")
 
 #### download tbprofiler txts ####
-subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "results/*.txt" --task "profile"', 
+subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --bucket {args.bucket} --workflow_id {args.workflow_id} --file "results/*.txt" --task "profile"', 
                         shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_tbprftxt.txt', shell=True)
 subprocess.run('mv failed_to_download.txt failed_to_download_tbprftxt.txt', shell=True)
 print("Finished pulling TBProfiler text files.")
 
 #### download diffs ####
-subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id}', 
+subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --bucket {args.bucket} --workflow_id {args.workflow_id}', 
                         shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_diff.txt', shell=True)
 print("Finished pulling diffs.")
 
 #### download bedgraphs ####
-subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "*.bedgraph"', 
+subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --bucket {args.bucket} --workflow_id {args.workflow_id} --file "*.bedgraph"', 
                         shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_bdgrph.txt', shell=True)
 print("Finished pulling bedgraphs.")
 
 #### download vcfs ####
-subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --workflow_id {args.workflow_id} --file "*.vcf" --task "varcall_with_array"', 
+subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --bucket {args.bucket} --workflow_id {args.workflow_id} --file "*.vcf" --task "varcall_with_array"', 
                         shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_vcf.txt', shell=True)
 print("Finished pulling vcfs.")
