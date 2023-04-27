@@ -33,11 +33,18 @@ subprocess.run('mv downloaded_successfully.txt downloaded_successfully_strain.tx
 subprocess.run('mv failed_to_download.txt failed_to_download_strain.txt', shell=True)
 print("Finished pulling the strain report file.")
 
-subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --bucket {args.bucket} --workflow_id {args.workflow_id} --file "resistance_reports.txt" --task "resistance_reports" --not_scattered', 
+subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --bucket {args.bucket} --workflow_id {args.workflow_id} --file "resistance_reports.txt" --task "cat_resistance" --not_scattered', 
                         shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
 subprocess.run('mv downloaded_successfully.txt downloaded_successfully_resistance.txt', shell=True)
 subprocess.run('mv failed_to_download.txt failed_to_download_resistance.txt', shell=True)
 print("Finished pulling the resistance report file.")
+
+### download diff reports ####
+subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --bucket {args.bucket} --workflow_id {args.workflow_id} --file "*.report"', 
+                        shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
+subprocess.run('mv downloaded_successfully.txt downloaded_successfully_diffreports.txt', shell=True)
+subprocess.run('mv failed_to_download.txt failed_to_download_diffreports.txt', shell=True)
+print("Finished pulling the diff report files.")
 
 #### download tbprofiler jsons ####
 subprocess.check_call(f'python3 pyoink.py --submission_id {args.submission_id} --bucket {args.bucket} --workflow_id {args.workflow_id} --file "results/*.json" --task "profile"', 
