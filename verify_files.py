@@ -8,6 +8,7 @@ arg.add_argument('--vcf', type=bool, default=True)
 arg.add_argument('--diff', type=bool, default=True)
 arg.add_argument('--bedgraph', type=bool, default=True)
 arg.add_argument('--fastqc', type=bool, default=False)
+arg.add_argument('--report', type=bool, default=True)
 arg.add_argument('-e', '--exclude_these_samples', type=str, required=False)
 arg.add_argument('-i', '--input_samples_file', type=str)
 args = arg.parse_args()
@@ -15,11 +16,13 @@ args = arg.parse_args()
 vcfs = []
 diffs = []
 bgs = []
+reports = []
 exclude = []
 all_samples = []
 samples_vcf = []
 samples_bgs = []
 samples_dif = []
+samples_rpt = []
 samples_missing = []
 ls = os.listdir()
 
@@ -45,6 +48,9 @@ for file in ls:
 	elif file.endswith(".bedgraph") and args.bedgraph is True:
 		bgs.append(file)
 		samples_bgs.append(file.rstrip(".bedgraph"))
+	elif file.endswith(".report") and args.report is True:
+		reports.append(file)
+		samples_rpt.append(file.rstrip(".report"))
 if args.fastqc is True:
 	htmls = []
 	ls = os.listdir("additional_outputs/")
@@ -62,8 +68,10 @@ if args.vcf is True and len(vcfs) != len(diffs):
 	print(f"WARNING: {len(vcfs)} VCFs, {len(diffs)} diffs")
 if args.bedgraph is True and len(diffs) != len(bgs):
 	print(f"WARNING: {len(bgs)} bedGraphs, {len(diffs)} diffs")
-if args.fastqc is True and args.number_of_inputs - len(htmls) != len(diffs):
-	print(f"WARNING: Input {args.number_of_inputs}, but that minus {len(htmls)} doesn't match number of diffs ({len(diffs)})")
+#if args.fastqc is True and args.number_of_inputs - len(htmls) != len(diffs):
+#	print(f"WARNING: Input {args.number_of_inputs}, but that minus {len(htmls)} doesn't match number of diffs ({len(diffs)})")
+if args.report is True and len(reports) != len(diffs):
+	print(f"WARNING: {len(reports)} reports, {len(diffs)} diffs")
 
 for sample in samples:
 	if sample.strip('\n') in samples_dif:
