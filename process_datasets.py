@@ -2,19 +2,20 @@
 import os
 import json
 import filecmp
+import subprocess
 
-class sample {
-    String biosample
-    Boolean klr # true if known lineage run, false if tba3 run
-    Boolean pulled
-    Boolean decontaminated
-    Boolean varcalled
-    Boolean diff
-    Float depth
-    String known_lineage
-    String tbprofiler_lineage
-    String usher_lineage
-}
+# class sample {
+#     String biosample
+#     Boolean klr # true if known lineage run, false if tba3 run
+#     Boolean pulled
+#     Boolean decontaminated
+#     Boolean varcalled
+#     Boolean diff
+#     Float depth
+#     String known_lineage
+#     String tbprofiler_lineage
+#     String usher_lineage
+# }
 
 # clean up files from old runs, supressing errors as we do so since those files might not exist yet
 os.system("rm klr_lineages klr_lineages_sorted_alphabetically klr_dupes klr_samples_only 2> /dev/null") # klr
@@ -27,57 +28,30 @@ os.system("rm klr_samples_not_in_tba3 klr_samples_also_in_tba3 tba3_samples_not_
 #for klr_run in klr_runs:
 #        os.system(f"curl https://raw.githubusercontent.com/aofarrel/SRANWRP/v1.1.14/inputs/tb_accessions/lineage/{klr_run}.txt >> ./lineage_runs/{klr_run}/{klr_run}.txt")
 
-# make lists of samples by known lineage
-L1_1 = []
-L1_1_1 = []
-L1_1_1_1 = []
-L1_1_2 = []
-L1_1_3 = []
-L1_2_1 = []
-L1_2_2 = []
-L2 = []
-L3 = []
-L3_1_1 = []
-L3_1_2 = []
-L3_1_2_1 = []
-L3_1_2_2 = []
-L4_1 = []
-L4_2 = []
-L4_3 = []
-L4_4 = []
-L4_5 = []
-L4_6 = []
-L4_7 = []
-L4_8 = []
-L4_9 = []
-L5 = []
-L5_1_1 = []
-L5_1_2 = []
-L5_1_3 = []
-L5_1_4 = []
-L5_1_5 = []
-L5_2 = []
-L5_3 = []
-L6 = []
-L6_1_1 = []
-L6_1_2 = []
-L6_1_3 = []
-L6_2_1 = []
-L6_2_2 = []
-L6_2_3 = []
-L6_3_1 = []
-L6_3_2 = []
-L6_3_3 = []
-L9 = []
+# make lists of known lineages
+all_lineages = []
+subdirectories = [x[1] for x in os.walk("./lineage_runs")]
+lineages = subdirectories[0] # this may not be robust...
+for lineage_as_subdirectory in lineages:
+    print(f"Checking {lineage_as_subdirectory}")
+    #this_lineage = f"{lineage_as_subdirectory}".replace(".", "_") # not needed right now
+    files = [item for sublist in [file[2] for file in os.walk(f"./lineage_runs/{lineage_as_subdirectory}")] for item in sublist]
+    bams = [filename for filename in files if filename.endswith(".bam")]
+    vcfs = [filename for filename in files if filename.endswith(".vcf")]
+    diffs = [filename for filename in files if filename.endswith(".diff")]
+    coverage = [filename for filename in files if filename.endswith(".report")]
+    #tbprf = [filename for filename in files if filename.endswith("uhhhhhhhhh")]
+    input_file = [filename for filename in files if filename.startswith("L")][0] # should only ever be one per lineage
+    first_half = f"wc -l ./lineage_runs/{lineage_as_subdirectory}/{input_file}"
+    second_half = " | awk '{print $1}'"
+    count_inputs = subprocess.Popen(first_half+second_half, shell=True, stdout=subprocess.PIPE)
+    number_of_inputs = count_inputs.stdout.read()
+    print(f"{lineage_as_subdirectory} input {number_of_inputs} BioSamples, and ended up with {len(vcfs)} VCFs, {len(bams)} BAMs, {len(diffs)} diffs, {len(coverage)} coverage reports.")
+exit(0)
 
-# fill lists, and cat all known lineage biosamples into one file
-os.chdir("./lineage_runs")
+
+# check for duplicates by cat'ing all known lineage biosamples into one file
 all_files = [item for sublist in [file[2] for file in os.walk(".")] for item in sublist]
-all_bams = [filename for filenmae in all_files if filename.endswith(".bam")]
-all_vcfs = [filename for filenmae in all_files if filename.endswith(".vcf")]
-all_diffs = [filename for filenmae in all_files if filename.endswith(".diff")]
-all_coverage = [filename for filenmae in all_files if filename.endswith(".report")]
-#all_tbprf = [filename for filenmae in all_files if filename.endswith("uhhhhhhhhh")]
 all_inputs = [filename for filename in all_files if filename.startswith("L")]
 for file in all_inputs:
     with open(file, "r") as lineagefile:
