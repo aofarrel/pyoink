@@ -33,7 +33,6 @@ all_lineages = []
 subdirectories = [x[1] for x in os.walk("./lineage_runs")]
 lineages = subdirectories[0] # this may not be robust...
 for lineage_as_subdirectory in lineages:
-    print(f"Checking {lineage_as_subdirectory}")
     #this_lineage = f"{lineage_as_subdirectory}".replace(".", "_") # not needed right now
     files = [item for sublist in [file[2] for file in os.walk(f"./lineage_runs/{lineage_as_subdirectory}")] for item in sublist]
     bams = [filename for filename in files if filename.endswith(".bam")]
@@ -43,10 +42,13 @@ for lineage_as_subdirectory in lineages:
     #tbprf = [filename for filename in files if filename.endswith("uhhhhhhhhh")]
     input_file = [filename for filename in files if filename.startswith("L")][0] # should only ever be one per lineage
     first_half = f"wc -l ./lineage_runs/{lineage_as_subdirectory}/{input_file}"
-    second_half = " | awk '{print $1}'"
+    second_half = " | awk '{print $1}'" # split this into two parts to avoid python format string conflicting with awk's notation
     count_inputs = subprocess.Popen(first_half+second_half, shell=True, stdout=subprocess.PIPE)
-    number_of_inputs = count_inputs.stdout.read()
-    print(f"{lineage_as_subdirectory} input {number_of_inputs} BioSamples, and ended up with {len(vcfs)} VCFs, {len(bams)} BAMs, {len(diffs)} diffs, {len(coverage)} coverage reports.")
+    number_of_inputs = int(str(count_inputs.stdout.read(), "utf-8")) + 1 # add one because of how wc works
+    print(f"{lineage_as_subdirectory} input {number_of_inputs} BioSamples, and ended up with {len(vcfs)} VCFs and {len(diffs)} diffs ({len(bams)} BAMs {len(coverage)} coverage reports).")
+    
+    # look per sample
+    for sample in 
 exit(0)
 
 
