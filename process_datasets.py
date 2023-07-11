@@ -4,7 +4,8 @@ import json
 import filecmp
 import subprocess
 
-# class sample {
+class Sample():
+# attributes:
 #     String biosample
 #     Boolean klr # true if known lineage run, false if tba3 run
 #     Boolean pulled
@@ -15,7 +16,35 @@ import subprocess
 #     String known_lineage
 #     String tbprofiler_lineage
 #     String usher_lineage
-# }
+
+    def __init__(self, biosample, known_lineage):
+        self.biosample = biosample.strip("(").strip(")").strip(",")
+        self.known_lineage = known_lineage.strip("(").strip(")").strip(",")
+        self.varcalled = None
+        self.diff = None
+    
+    def hasVCF(self, vcfs):
+        if f"{self.biosample}_final.vcf" in vcfs:
+            self.varcalled = True
+        else:
+            self.varcalled = False
+    
+    def hasDiff(self, diffs):
+        if f"{self.biosample}.diff" in diffs:
+            self.diff = True
+        else:
+            self.diff = False
+    
+    def stats(self):
+        print(f"\033[0m{self.biosample}\t{self.known_lineage}", end="\t")
+        for item in [self.varcalled, self.diff]:
+            if bool(item) == False:
+                print("\033[91m N", end="\t")
+            else:
+                print("\033[32m Y", end="\t")
+        print("\033[0m")
+        
+
 
 # clean up files from old runs, supressing errors as we do so since those files might not exist yet
 os.system("rm klr_lineages klr_lineages_sorted_alphabetically klr_dupes klr_samples_only 2> /dev/null") # klr
@@ -29,27 +58,40 @@ os.system("rm klr_samples_not_in_tba3 klr_samples_also_in_tba3 tba3_samples_not_
 #        os.system(f"curl https://raw.githubusercontent.com/aofarrel/SRANWRP/v1.1.14/inputs/tb_accessions/lineage/{klr_run}.txt >> ./lineage_runs/{klr_run}/{klr_run}.txt")
 
 # make lists of known lineages
-all_lineages = []
+all_lineages_samples = []
 subdirectories = [x[1] for x in os.walk("./lineage_runs")]
 lineages = subdirectories[0] # this may not be robust...
-for lineage_as_subdirectory in lineages:
-    #this_lineage = f"{lineage_as_subdirectory}".replace(".", "_") # not needed right now
-    files = [item for sublist in [file[2] for file in os.walk(f"./lineage_runs/{lineage_as_subdirectory}")] for item in sublist]
+for lineage in lineages:
+
+    # make arrays
+    #this_lineage = {f"{lineage}"}
+    files = [item for sublist in [file[2] for file in os.walk(f"./lineage_runs/{lineage}")] for item in sublist]
     bams = [filename for filename in files if filename.endswith(".bam")]
     vcfs = [filename for filename in files if filename.endswith(".vcf")]
     diffs = [filename for filename in files if filename.endswith(".diff")]
     coverage = [filename for filename in files if filename.endswith(".report")]
     #tbprf = [filename for filename in files if filename.endswith("uhhhhhhhhh")]
     input_file = [filename for filename in files if filename.startswith("L")][0] # should only ever be one per lineage
-    first_half = f"wc -l ./lineage_runs/{lineage_as_subdirectory}/{input_file}"
-    second_half = " | awk '{print $1}'" # split this into two parts to avoid python format string conflicting with awk's notation
-    count_inputs = subprocess.Popen(first_half+second_half, shell=True, stdout=subprocess.PIPE)
-    number_of_inputs = int(str(count_inputs.stdout.read(), "utf-8")) + 1 # add one because of how wc works
-    print(f"{lineage_as_subdirectory} input {number_of_inputs} BioSamples, and ended up with {len(vcfs)} VCFs and {len(diffs)} diffs ({len(bams)} BAMs {len(coverage)} coverage reports).")
+    with open(f"./lineage_runs/{lineage}/{input_file}", "r") as sample_file:
+        samples = [x.strip("\n") for x in sample_file.readlines()]
+        print(samples[0])
+    print(f"{lineage} input {len(samples)} BioSamples, and ended up with {len(vcfs)} VCFs and {len(diffs)} diffs ({len(bams)} BAMs {len(coverage)} coverage reports).")
     
     # look per sample
-    for sample in 
-exit(0)
+    this_lineages_samples = []
+    for sample in samples:
+        # set up sample object
+        this_sample = Sample(sample, f"{lineage}")
+        this_sample.hasVCF(vcfs)
+        this_sample.hasDiff(diffs)
+        
+        # add to this lineage's list of samples
+        this_lineages_samples.append(sample)
+        
+        # debug: print stats
+        this_sample.stats()
+    
+    all_lineages_samples.append(this_lineages_samples)
 
 
 # check for duplicates by cat'ing all known lineage biosamples into one file
@@ -71,18 +113,7 @@ os.system("cut -f1 klr_lineages_sorted_alphabetically >> klr_samples_only")
 os.system("rm klr_lineages")
 
 
-# go through directories and cross-check against sample lists
-os.chdir("..")
-for directory1 in [x[0] for x in os.walk("./lineage_runs")]:
-    for directory2 in [x[0] for x in os.walk("./lineage_runs")]:
-            if directory1 != directory2:
-                    print("Checking {directory1} and {directory2}")
-                    filecmp.cmpfiles()
-
-
-
-
-#  
+ 
 #### tba3 dataset ####
 
 # make sure input files match what's on GitHub
