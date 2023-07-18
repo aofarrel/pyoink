@@ -3,6 +3,7 @@ import os
 import json
 import filecmp
 import subprocess
+from tabulate import tabulate
 
 class Sample():
 # attributes:
@@ -11,7 +12,8 @@ class Sample():
 #     Boolean decontaminated
 #     Boolean varcalled
 #     Boolean diff
-#     Boolean report
+#     Boolean coverage
+#     Boolean tbprof
 #     Float depth
 #     String randrun_id
 #     String known_lineage_id
@@ -31,6 +33,8 @@ class Sample():
     def hasVCF(self, vcfs):
         if f"{self.biosample}_final.vcf" in vcfs:
             self.varcalled = True
+        elif f"{self.biosample}.vcf" in vcfs:
+            self.varcalled = True
         else:
             self.varcalled = False
     
@@ -40,11 +44,19 @@ class Sample():
         else:
             self.diff = False
     
-    def hasReport(self, reports):
+    def hasCoverage(self, reports):
         if f"{self.biosample}.report" in reports:
             self.report = True
         else:
             self.report = False
+    
+    def hasTBProf(self, jsons):
+        if f"{self.biosample}.json" in jsons:
+            self.tbprof = True
+            
+            ## TODO: add tbprofiler_lineage 
+        else:
+            self.tbprof = False
     
     def stats(self):
         print(f"\033[0m{self.biosample}\t{self.known_lineage}", end="\t")
@@ -75,21 +87,25 @@ os.system("rm rand_runs/*/*_GitHub.txt")
 
 # make lists of known lineages
 all_lineages_samples = []
+all_lineages_information = []
 subdirectories = [x[1] for x in os.walk("./lineage_runs")]
 lineages = subdirectories[0] # this may not be robust...
 for lineage in lineages:
 
-    # make arrays
-    #this_lineage = {f"{lineage}"}
+    # make arrays of files
     files = [item for sublist in [file[2] for file in os.walk(f"./lineage_runs/{lineage}")] for item in sublist]
     vcfs = [filename for filename in files if filename.endswith(".vcf")]
     diffs = [filename for filename in files if filename.endswith(".diff")]
     input_file = [filename for filename in files if filename.startswith("L")][0] # should only ever be one per lineage
+    
+    # get a list of sample IDs from the input file
     with open(f"./lineage_runs/{lineage}/{input_file}", "r") as sample_file:
         samples = [x.strip("\n") for x in sample_file.readlines()]
-    print(f"{lineage} input {len(samples)} BioSamples, and ended up with {len(vcfs)} VCFs and {len(diffs)} diffs")
     
-    # look per sample
+    # add per-lineage info for a pretty table later
+    all_lineages_information.append([f"{lineage}", len(samples), len(vcfs), len(diffs), 100*len(vcfs)/len(samples)])
+    
+    # check each sample ID for vcfs and diffs
     this_lineages_samples = []
     for sample in samples:
         # set up sample object
@@ -103,6 +119,24 @@ for lineage in lineages:
         # debug: print stats
         #this_sample.stats()
     
+    # check for orphan files (files that don't belong to any sample)
+    known_vcfs = []
+    for sample in this_lineages_samples:
+        if sample.varcalled is True:
+            known_vcfs.append(f"{sample.biosample}_final.vcf")
+    for vcf in vcfs: # defined earlier as files that end with vcf in this folder
+        if vcf not in known_vcfs:
+            print(f"WARNING: {vcf} does not appear to be associated with any sample!")
+    
+    known_diffs = []
+    for sample in this_lineages_samples:
+        if sample.diff is True:
+            known_diffs.append(f"{sample.biosample}.diff")
+    for diff in diffs: # defined earlier as files that end with vcf in this folder
+        if diff not in known_diffs:
+            print(f"WARNING: {diff} does not appear to be associated with any sample!")
+    
+    # add to array
     all_lineages_samples.append(this_lineages_samples)
 all_klr_samples = [sample for lineages in all_lineages_samples for sample in lineages] # flattened list
 
@@ -116,68 +150,116 @@ for i in range(len(all_klr_samples)):
 
  
 # write outputs 
+print(tabulate(all_lineages_information, headers=["lineage", "samples", "VCFs", "diffs", "% VCF"]))
+
 for sample in all_klr_samples:
     sample.write("klr_all_samples_information.tsv")
 
 #### tba3 dataset ####
 
 # download mirrors from GitHub (will be checked against later)
+print("Downloading GitHub mirrors...")
 tba3_runs = [directory for directory in os.listdir("./rand_runs")]
 for tba3_run in tba3_runs:
-    print(tba3_run)
     if tba3_run.endswith("partial_redo"):
         os.system(f"curl https://raw.githubusercontent.com/aofarrel/SRANWRP/v1.1.14/inputs/tb_accessions/tb_a3/{tba3_run}.txt >> ./rand_runs/{tba3_run}/{tba3_run}_GitHub.txt")
+    elif tba3_run == "rescue_rescue_redo":
+        os.system(f"curl https://raw.githubusercontent.com/aofarrel/SRANWRP/main/inputs/tb_accessions/tb_a3/rescue_rescue_samples.txt >> ./rand_runs/{tba3_run}/rescue_rescue_redo_GitHub.txt")
     elif tba3_run.endswith("_redo"):
         tba3_run_no_redo = tba3_run.replace("_redo", "")
-        os.system(f"curl https://raw.githubusercontent.com/aofarrel/SRANWRP/v1.1.14/inputs/tb_accessions/tb_a3/exclusive_subsets/{tba3_run_no_redo}.txt >> ./rand_runs/{tba3_run}/{tba3_run}_GitHub.txt")
-    elif tba3_run == "rescue_samples.txt":
-        os.system(f"curl https://raw.githubusercontent.com/aofarrel/SRANWRP/v1.1.14/inputs/tb_accessions/tb_a3/{tba3_run}.txt >> ./rand_runs/{tba3_run}/{tba3_run}_GitHub.txt")
+        os.system(f"curl https://raw.githubusercontent.com/aofarrel/SRANWRP/v1.1.14/inputs/tb_accessions/tb_a3/exclusive_subsets/tb_a3_{tba3_run_no_redo}.txt >> ./rand_runs/{tba3_run}/{tba3_run}_GitHub.txt")
+    elif tba3_run == "rescue_run":
+        os.system(f"curl https://raw.githubusercontent.com/aofarrel/SRANWRP/v1.1.14/inputs/tb_accessions/tb_a3/rescue_samples.txt >> ./rand_runs/{tba3_run}/{tba3_run}_GitHub.txt")
+    elif tba3_run == "party_time🎉":
+        os.system(f"curl https://raw.githubusercontent.com/aofarrel/SRANWRP/v1.1.14/inputs/tb_accessions/tb_a3/exclusive_subsets/tb_a3_pool.txt >> ./rand_runs/{tba3_run}/{tba3_run}_GitHub.txt") 
+    elif tba3_run.startswith("rand13000_"):
+        os.system(f"curl https://raw.githubusercontent.com/aofarrel/SRANWRP/main/inputs/tb_accessions/tb_a3/{tba3_run}.txt >> ./rand_runs/{tba3_run}/{tba3_run}_GitHub.txt")
     else:
         os.system(f"curl https://raw.githubusercontent.com/aofarrel/SRANWRP/v1.1.14/inputs/tb_accessions/tb_a3/exclusive_subsets/tb_a3_{tba3_run}.txt >> ./rand_runs/{tba3_run}/{tba3_run}_GitHub.txt")
+        
 
 all_randruns_samples = []
+all_randruns_information = []
 subdirectories = [x[1] for x in os.walk("./rand_runs")]
 randruns = subdirectories[0] # this may not be robust...
 for randrun in randruns:
     # make arrays
     files = [item for sublist in [file[2] for file in os.walk(f"./rand_runs/{randrun}")] for item in sublist]
-    bams = [filename for filename in files if filename.endswith(".bam")]
     vcfs = [filename for filename in files if filename.endswith(".vcf")]
     diffs = [filename for filename in files if filename.endswith(".diff")]
     coverage = [filename for filename in files if filename.endswith(".report")]
-    #tbprf = [filename for filename in files if filename.endswith("uhhhhhhhhh")]
-    input_file = f"./rand_runs/{randrun}/inputs/tb_a3_{randrun}.txt"
-    with open(input_file, "r") as sample_file:
-        samples = [x.strip("\n") for x in sample_file.readlines()]
-    print(f"{randrun} input {len(samples)} BioSamples, and ended up with {len(vcfs)} VCFs, {len(diffs)} diffs, {len(bams)} BAMs, {len(coverage)} coverage reports.")
-    
-    # check input file against github file
-    with open(f"./rand_runs/{randrun}/{randrun}_GitHub.txt", "r") as other_sample_file:
-        supposed_samples = [x.strip("\n") for x in other_sample_file.readlines()]
-    if len(samples) != len(supposed_samples):
-        print(f"WARNING: Input file has {len(samples)} samples but GitHub mirror has {len(supposed_samples)} samples!")
-    for i in range(len(supposed_samples)):
-        if supposed_samples[i] not in samples:
-            print(f"WARNING: Found {supposed_samples[i]} on the GitHub mirror, but not the input file!")
+    #bams = [filename for filename in files if filename.endswith(".bam")]
+    tbprf = [filename for filename in files if filename.endswith(".json")]
+    if randrun == "rescue_rescue_redo":
+        print("Warning: No input file for rescue_rescue_redo. Will be using the GitHub mirror for all checks.")
+        with open("./rand_runs/rescue_rescue_redo/rescue_rescue_redo_GitHub.txt", "r") as sample_file:
+            samples = [x.strip("\n") for x in sample_file.readlines()]
+    else:
         try:
-            if samples[i] not in supposed_samples:
-                print(f"WARNING: Found {supposed_samples[i]} in the input file, but not the GitHub mirror!")
-        except IndexError:
-            pass
-     
+            input_file = f"./rand_runs/{randrun}/inputs/tb_a3_{randrun}.txt"
+            with open(input_file, "r") as sample_file:
+                samples = [x.strip("\n") for x in sample_file.readlines()]
+        except FileNotFoundError:
+            if randrun == "rescue_run":
+                with open("./rand_runs/rescue_run/rescue_samples.txt", "r") as sample_file:
+                    samples = [x.strip("\n") for x in sample_file.readlines()]
+            elif randrun == "party_time🎉":
+                with open("./rand_runs/party_time🎉/tb_a3_pool.txt", "r") as sample_file:
+                    samples = [x.strip("\n") for x in sample_file.readlines()]
+            else:
+                tba3_run_no_redo = randrun.replace("_redo", "")
+                input_file = f"./rand_runs/{randrun}/inputs/tb_a3_{tba3_run_no_redo}.txt"
+                with open(input_file, "r") as sample_file:
+                    samples = [x.strip("\n") for x in sample_file.readlines()]
+        
+        # check input file against github file
+        with open(f"./rand_runs/{randrun}/{randrun}_GitHub.txt", "r") as other_sample_file:
+            supposed_samples = [x.strip("\n") for x in other_sample_file.readlines()]
+        if len(samples) != len(supposed_samples):
+            print(f"WARNING: Input file has {len(samples)} samples but GitHub mirror has {len(supposed_samples)} samples!")
+        for i in range(len(supposed_samples)):
+            if supposed_samples[i] not in samples:
+                print(f"WARNING: Found {supposed_samples[i]} on the GitHub mirror, but not the input file!")
+            try:
+                if samples[i] not in supposed_samples:
+                    print(f"WARNING: Found {supposed_samples[i]} in the input file, but not the GitHub mirror!")
+            except IndexError:
+                pass
     
-    # look per sample
+    # add per-lineage info for a pretty table later
+    all_randruns_information.append([f"{lineage}", len(samples), len(vcfs), len(diffs), len(tbprf), 100*len(vcfs)/len(samples)])
+    
     this_randruns_samples = []
     for sample in samples:
         # set up sample object
         this_sample = Sample(sample, randrun_id=f"{randrun}")
         this_sample.hasVCF(vcfs)
         this_sample.hasDiff(diffs)
+        this_sample.hasCoverage(coverage)
+        this_sample.hasTBProf(tbprf)
         
         # add to this lineage's list of samples
         this_randruns_samples.append(this_sample)
     
-    all_randruns_samples.append(this_lineages_samples)
+    all_randruns_samples.append(this_randruns_samples)
+    
+    # check for orphan files (files that don't belong to any sample)
+    known_vcfs = []
+    for sample in this_randruns_samples:
+        if sample.varcalled is True:
+            known_vcfs.append(f"{sample.biosample}.vcf")
+    for vcf in vcfs: # defined earlier as files that end with vcf in this folder
+        if vcf not in known_vcfs:
+            print(f"WARNING: {vcf} does not appear to be associated with any sample!")
+    
+    known_diffs = []
+    for sample in this_randruns_samples:
+        if sample.diff is True:
+            known_diffs.append(f"{sample.biosample}.diff")
+    for diff in diffs: # defined earlier as files that end with diff in this folder
+        if diff not in known_diffs:
+            print(f"WARNING: {diff} does not appear to be associated with any sample!")
+            
 all_rand_samples = [sample for randruns in all_randruns_samples for sample in randruns] # flattened list
 
 # check for dupes
@@ -189,6 +271,7 @@ for i in range(len(all_rand_samples)):
                 print(f"WARNING: Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun} and {all_rand_samples[j].randrun}")
  
 # write outputs 
+print(tabulate(all_randruns_information, headers=["lineage", "samples", "VCFs", "diffs", "TBPrf", "% VCF"]))
 for sample in all_rand_samples:
     sample.write("tba3_all_samples.tsv")
 
