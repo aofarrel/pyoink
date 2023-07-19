@@ -4,6 +4,7 @@ import json
 import filecmp
 import subprocess
 from tabulate import tabulate
+from tqdm import tqdm
 
 class Sample():
 # attributes:
@@ -29,6 +30,7 @@ class Sample():
         self.varcalled = None
         self.diff = None
         self.report = None
+        self.known_lineage = None
     
     def hasVCF(self, vcfs):
         if f"{self.biosample}_final.vcf" in vcfs:
@@ -53,7 +55,9 @@ class Sample():
     def hasTBProf(self, jsons):
         if f"{self.biosample}.json" in jsons:
             self.tbprof = True
-            
+            with open(f"{self.biosample}", "r") as tbprof:
+                report = json.load(tbprof)
+                self.tbprofiler_lineage = (str(report["sublin"])) 
             ## TODO: add tbprofiler_lineage 
         else:
             self.tbprof = False
@@ -69,7 +73,10 @@ class Sample():
     
     def write(self, file):
         with open(file, "a") as output:
-            output.write(f"{self.biosample}\t{self.known_lineage}\t{self.varcalled}\t{self.diff}\n")
+            if self.known_lineage is not None:
+                output.write(f"{self.biosample}\t{self.known_lineage}\t{self.varcalled}\t{self.diff}\n")
+            else:
+                output.write(f"{self.biosample}\t{self.varcalled}\t{self.diff}\n")
         
 
 
@@ -141,8 +148,9 @@ for lineage in lineages:
 all_klr_samples = [sample for lineages in all_lineages_samples for sample in lineages] # flattened list
 
 # check for dupes
+## TODO: THIS USED TO HAVE A DUPLICATE SHOW UP
 print("Checking for duplicates...")
-for i in range(len(all_klr_samples)):
+for i in tqdm(range(len(all_klr_samples))):
     for j in range(len(all_klr_samples)):
         if all_klr_samples[i].biosample == all_klr_samples[j].biosample:
             if all_klr_samples[i].known_lineage != all_klr_samples[j].known_lineage:
@@ -182,7 +190,7 @@ all_randruns_samples = []
 all_randruns_information = []
 subdirectories = [x[1] for x in os.walk("./rand_runs")]
 randruns = subdirectories[0] # this may not be robust...
-for randrun in randruns:
+for randrun in tqdm(randruns):
     # make arrays
     files = [item for sublist in [file[2] for file in os.walk(f"./rand_runs/{randrun}")] for item in sublist]
     vcfs = [filename for filename in files if filename.endswith(".vcf")]
@@ -227,7 +235,7 @@ for randrun in randruns:
                 pass
     
     # add per-lineage info for a pretty table later
-    all_randruns_information.append([f"{lineage}", len(samples), len(vcfs), len(diffs), len(tbprf), 100*len(vcfs)/len(samples)])
+    all_randruns_information.append([f"{randrun}", len(samples), len(vcfs), len(diffs), len(tbprf), 100*len(vcfs)/len(samples)])
     
     this_randruns_samples = []
     for sample in samples:
@@ -263,16 +271,34 @@ for randrun in randruns:
 all_rand_samples = [sample for randruns in all_randruns_samples for sample in randruns] # flattened list
 
 # check for dupes
+rand_dupes_to_delete = []
 print("Checking for duplicates (this will take a while)...")
-for i in range(len(all_rand_samples)):
+for i in tqdm(range(len(all_rand_samples))):
     for j in range(len(all_rand_samples)):
         if all_rand_samples[i].biosample == all_rand_samples[j].biosample:
             if all_rand_samples[i].randrun != all_rand_samples[j].randrun:
-                print(f"WARNING: Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun} and {all_rand_samples[j].randrun}")
- 
+                # these are duplicates -- find out which one is better
+                if all_rand_samples[i].varcalled is True and all_rand_samples[j].varcalled is False:
+                    rand_dupes_to_delete.append(all_rand_samples[j])
+                elif all_rand_samples[i].varcalled is False and all_rand_samples[j].varcalled is True:
+                    rand_dupes_to_delete.append(all_rand_samples[i])
+                elif all_rand_samples[i].tbprof is True and all_rand_samples[j].tbprof is False:
+                    rand_dupes_to_delete.append(all_rand_samples[j])
+                elif all_rand_samples[i].tbprof is False and all_rand_samples[j].tbprof is True:
+                    rand_dupes_to_delete.append(all_rand_samples[i])
+                else:
+                    #print(f"Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun} and {all_rand_samples[j].randrun} but they seem very similar.")
+                    rand_dupes_to_delete.append(all_rand_samples[j]) # delete one at random
+                #print(f"WARNING: Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun} and {all_rand_samples[j].randrun}")
+
+unique_rand_samples = []
+for sample in all_rand_samples:
+    if sample not in rand_dupes_to_delete:
+        unique_rand_samples.append(sample)
+
 # write outputs 
 print(tabulate(all_randruns_information, headers=["lineage", "samples", "VCFs", "diffs", "TBPrf", "% VCF"]))
-for sample in all_rand_samples:
+for sample in unique_rand_samples:
     sample.write("tba3_all_samples.tsv")
 
 
