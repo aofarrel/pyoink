@@ -1,3 +1,5 @@
+skip_dupe_check = True
+
 # compare datasets
 import os
 import json
@@ -24,13 +26,14 @@ class Sample():
     def __init__(self, biosample, known_lineage_id=None, randrun_id=None):
         self.biosample = biosample.strip("(").strip(")").strip(",")
         if known_lineage_id is not None:
-            self.known_lineage = known_lineage_id.strip("(").strip(")").strip(",")
+            self.known_lineage_id = known_lineage_id.strip("(").strip(")").strip(",")
+            self.randrun_id = None
         if randrun_id is not None:
-            self.randrun = randrun_id.strip("(").strip(")").strip(",")
+            self.randrun_id = randrun_id.strip("(").strip(")").strip(",")
+            self.known_lineage_id = None
         self.varcalled = None
         self.diff = None
         self.report = None
-        self.known_lineage = None
     
     def hasVCF(self, vcfs):
         if f"{self.biosample}_final.vcf" in vcfs:
@@ -53,17 +56,24 @@ class Sample():
             self.report = False
     
     def hasTBProf(self, jsons):
-        if f"{self.biosample}.json" in jsons:
-            self.tbprof = True
-            with open(f"{self.biosample}", "r") as tbprof:
-                report = json.load(tbprof)
-                self.tbprofiler_lineage = (str(report["sublin"])) 
-            ## TODO: add tbprofiler_lineage 
-        else:
-            self.tbprof = False
+        # json filename not entirely consistent
+        # todo: this could be made simplier with regex
+        # todo: adjust so this could take in klrs
+        for some_json in jsons:
+            if some_json.startswith(f"{self.biosample}"):
+                self.tbprof = True
+                with open(f"rand_runs/{self.randrun_id}/{some_json}", "r") as tbprof:
+                    report = json.load(tbprof)
+                    self.tbprofiler_lineage = (str(report["sublin"]))
+                    if self.tbprofiler_lineage == "":
+                        #print(f"Warning: {self.biosample} has a TBProfiler JSON but no lineage information.")
+                        pass
+                    return
+        self.tbprof = False
+        self.tbprofiler_lineage = None
     
     def stats(self):
-        print(f"\033[0m{self.biosample}\t{self.known_lineage}", end="\t")
+        print(f"\033[0m{self.biosample}\t{self.known_lineage_id}", end="\t")
         for item in [self.varcalled, self.diff]:
             if item == False:
                 print("\033[91m N", end="\t")
@@ -71,19 +81,21 @@ class Sample():
                 print("\033[32m Y", end="\t")
         print("\033[0m")
     
-    def write(self, file):
+    def to_file(self, file):
         with open(file, "a") as output:
-            if self.known_lineage is not None:
-                output.write(f"{self.biosample}\t{self.known_lineage}\t{self.varcalled}\t{self.diff}\n")
+            if self.known_lineage_id is not None:
+                output.write(f"{self.biosample}\t{self.known_lineage_id}\t{self.varcalled}\t{self.diff}\n")
+            elif self.randrun_id is not None:
+                output.write(f"{self.biosample}\t{self.randrun_id}\t{self.tbprofiler_lineage}\t{self.varcalled}\t{self.diff}\n")
             else:
-                output.write(f"{self.biosample}\t{self.varcalled}\t{self.diff}\n")
-        
+                print(f"ERROR - {self.biosample} has neither randrun nor klr id")
 
 
 # clean up files from old runs, supressing errors as we do so since those files might not exist yet
 os.system("rm klr_lineages klr_lineages_sorted_alphabetically klr_dupes klr_samples_only 2> /dev/null") # klr
 os.system("rm klr_samples_not_in_tba3 klr_samples_also_in_tba3 tba3_samples_not_in_klr 2> /dev/null") # comparisons
 os.system("rm rand_runs/*/*_GitHub.txt")
+os.system("rm tba3_all_samples.tsv tba3_all_samples_no_dupes.tsv")
 
 #### KLR dataset ####
 
@@ -153,15 +165,16 @@ print("Checking for duplicates...")
 for i in tqdm(range(len(all_klr_samples))):
     for j in range(len(all_klr_samples)):
         if all_klr_samples[i].biosample == all_klr_samples[j].biosample:
-            if all_klr_samples[i].known_lineage != all_klr_samples[j].known_lineage:
-                print(f"WARNING: Found {all_klr_samples[i].biosample} in {all_klr_samples[i].known_lineage} and {all_klr_samples[j].known_lineage}")
+            if all_klr_samples[i].known_lineage_id != all_klr_samples[j].known_lineage_id:
+                print(f"WARNING: Found {all_klr_samples[i].biosample} in {all_klr_samples[i].known_lineage_id} and {all_klr_samples[j].known_lineage_id}")
 
  
-# write outputs 
+# write per-lineage outputs
 print(tabulate(all_lineages_information, headers=["lineage", "samples", "VCFs", "diffs", "% VCF"]))
 
+# write per-sample outputs
 for sample in all_klr_samples:
-    sample.write("klr_all_samples_information.tsv")
+    sample.to_file("klr_all_samples_information.tsv")
 
 #### tba3 dataset ####
 
@@ -271,35 +284,46 @@ for randrun in tqdm(randruns):
 all_rand_samples = [sample for randruns in all_randruns_samples for sample in randruns] # flattened list
 
 # check for dupes
-rand_dupes_to_delete = []
-print("Checking for duplicates (this will take a while)...")
-for i in tqdm(range(len(all_rand_samples))):
-    for j in range(len(all_rand_samples)):
-        if all_rand_samples[i].biosample == all_rand_samples[j].biosample:
-            if all_rand_samples[i].randrun != all_rand_samples[j].randrun:
-                # these are duplicates -- find out which one is better
-                if all_rand_samples[i].varcalled is True and all_rand_samples[j].varcalled is False:
-                    rand_dupes_to_delete.append(all_rand_samples[j])
-                elif all_rand_samples[i].varcalled is False and all_rand_samples[j].varcalled is True:
-                    rand_dupes_to_delete.append(all_rand_samples[i])
-                elif all_rand_samples[i].tbprof is True and all_rand_samples[j].tbprof is False:
-                    rand_dupes_to_delete.append(all_rand_samples[j])
-                elif all_rand_samples[i].tbprof is False and all_rand_samples[j].tbprof is True:
-                    rand_dupes_to_delete.append(all_rand_samples[i])
-                else:
-                    #print(f"Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun} and {all_rand_samples[j].randrun} but they seem very similar.")
-                    rand_dupes_to_delete.append(all_rand_samples[j]) # delete one at random
-                #print(f"WARNING: Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun} and {all_rand_samples[j].randrun}")
 
-unique_rand_samples = []
-for sample in all_rand_samples:
-    if sample not in rand_dupes_to_delete:
-        unique_rand_samples.append(sample)
+if not skip_dupe_check: 
+    rand_dupes_to_delete = []
+    print("Checking for duplicates (this will take a while)...")
+    for i in tqdm(range(len(all_rand_samples))):
+        for j in range(len(all_rand_samples)):
+            if all_rand_samples[i].biosample == all_rand_samples[j].biosample:
+                if all_rand_samples[i].randrun != all_rand_samples[j].randrun:
+                    # these are duplicates -- find out which one is better
+                    if all_rand_samples[i].varcalled is True and all_rand_samples[j].varcalled is False:
+                        rand_dupes_to_delete.append(all_rand_samples[j])
+                    elif all_rand_samples[i].varcalled is False and all_rand_samples[j].varcalled is True:
+                        rand_dupes_to_delete.append(all_rand_samples[i])
+                    elif all_rand_samples[i].tbprof is True and all_rand_samples[j].tbprof is False:
+                        rand_dupes_to_delete.append(all_rand_samples[j])
+                    elif all_rand_samples[i].tbprof is False and all_rand_samples[j].tbprof is True:
+                        rand_dupes_to_delete.append(all_rand_samples[i])
+                    else:
+                        #print(f"Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun} and {all_rand_samples[j].randrun} but they seem very similar.")
+                        rand_dupes_to_delete.append(all_rand_samples[j]) # delete one at random
+                    #print(f"WARNING: Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun} and {all_rand_samples[j].randrun}")
+    
+    unique_rand_samples = []
+    for sample in all_rand_samples:
+        if sample not in rand_dupes_to_delete:
+            unique_rand_samples.append(sample)
+            
+    # write task-level outputs
+    for sample in tqdm(unique_rand_samples):
+        sample.to_file("tba3_all_samples_no_dupes.tsv")
+else:
+    # write task-level outputs
+    for sample in tqdm(all_rand_samples):
+        sample.to_file("tba3_all_samples.tsv")
+    
 
-# write outputs 
-print(tabulate(all_randruns_information, headers=["lineage", "samples", "VCFs", "diffs", "TBPrf", "% VCF"]))
-for sample in unique_rand_samples:
-    sample.write("tba3_all_samples.tsv")
+# write run-level outputs -- this will include dupes unfortunately
+print(tabulate(all_randruns_information, headers=["lineage", "samples", "VCFs", "diffs", "TBProf strain", "% VCF"]))
+
+
 
 
 
