@@ -1,7 +1,14 @@
-skip_dupe_check = True
+skip_dupe_check = False
 
-# compare datasets
 import os
+# clean up files from old runs, supressing errors as we do so since those files might not exist yet
+os.system("rm klr_lineages klr_lineages_sorted_alphabetically klr_dupes klr_samples_only 2> /dev/null") # klr
+os.system("rm klr_samples_not_in_tba3 klr_samples_also_in_tba3 tba3_samples_not_in_klr 2> /dev/null") # comparisons
+os.system("rm rand_runs/*/*_GitHub.txt 2> /dev/null")
+os.system("rm tba3_all_samples.tsv tba3_all_samples_no_dupes.tsv 2> /dev/null")
+os.system("rm process.log 2> /dev/null") # do this BEFORE calling logger
+import logging
+logging.basicConfig(filename="process.log", level=logging.INFO, force=True)
 import json
 import filecmp
 import subprocess
@@ -17,11 +24,12 @@ class Sample():
 #     Boolean diff
 #     Boolean coverage
 #     Boolean tbprof
-#     Float depth
+#     Int depth
 #     String randrun_id
 #     String known_lineage_id
 #     String tbprofiler_lineage
 #     String usher_lineage
+
 
     def __init__(self, biosample, known_lineage_id=None, randrun_id=None):
         self.biosample = biosample.strip("(").strip(")").strip(",")
@@ -56,21 +64,35 @@ class Sample():
             self.report = False
     
     def hasTBProf(self, jsons):
-        # json filename not entirely consistent
         # todo: this could be made simplier with regex
         # todo: adjust so this could take in klrs
         for some_json in jsons:
-            if some_json.startswith(f"{self.biosample}"):
+            if some_json.startswith(f"{self.biosample}"): # json filename not entirely consistent
                 self.tbprof = True
                 with open(f"rand_runs/{self.randrun_id}/{some_json}", "r") as tbprof:
                     report = json.load(tbprof)
-                    self.tbprofiler_lineage = (str(report["sublin"]))
-                    if self.tbprofiler_lineage == "":
-                        #print(f"Warning: {self.biosample} has a TBProfiler JSON but no lineage information.")
-                        pass
+                    
+                    # lineage
+                    apparent_lineage = (str(report["sublin"]))
+                    if apparent_lineage == "":
+                        self.tbprofiler_lineage = "Unknown"
+                        logging.info(f'{self.biosample} has a TBProfiler JSON but no lineage information.')
+                    elif apparent_lineage == " ":
+                        self.tbprofiler_lineage = "Unknown"
+                        logging.info(f'{self.biosample} has a TBProfiler JSON but no lineage information.')
+                    else:
+                        self.tbprofiler_lineage = apparent_lineage
+                    
+                    # QC
+                    self.tbprof_pct_reads_mapped = (str(report["qc"]["pct_reads_mapped"]))
+                    self.tbprof_median_coverage = (str(report["qc"]["median_coverage"]))
+                    
                     return
+        # no TBProf JSON found
         self.tbprof = False
         self.tbprofiler_lineage = None
+        self.tbprof_pct_reads_mapped = None
+        self.tbprof_median_coverage = None
     
     def stats(self):
         print(f"\033[0m{self.biosample}\t{self.known_lineage_id}", end="\t")
@@ -86,16 +108,9 @@ class Sample():
             if self.known_lineage_id is not None:
                 output.write(f"{self.biosample}\t{self.known_lineage_id}\t{self.varcalled}\t{self.diff}\n")
             elif self.randrun_id is not None:
-                output.write(f"{self.biosample}\t{self.randrun_id}\t{self.tbprofiler_lineage}\t{self.varcalled}\t{self.diff}\n")
+                output.write(f"{self.biosample}\t{self.randrun_id}\t{self.varcalled}\t{self.diff}\t{self.tbprof}\t{self.tbprof_pct_reads_mapped}\t{self.tbprof_median_coverage}\t{self.tbprofiler_lineage}\n")
             else:
                 print(f"ERROR - {self.biosample} has neither randrun nor klr id")
-
-
-# clean up files from old runs, supressing errors as we do so since those files might not exist yet
-os.system("rm klr_lineages klr_lineages_sorted_alphabetically klr_dupes klr_samples_only 2> /dev/null") # klr
-os.system("rm klr_samples_not_in_tba3 klr_samples_also_in_tba3 tba3_samples_not_in_klr 2> /dev/null") # comparisons
-os.system("rm rand_runs/*/*_GitHub.txt")
-os.system("rm tba3_all_samples.tsv tba3_all_samples_no_dupes.tsv")
 
 #### KLR dataset ####
 
@@ -160,14 +175,12 @@ for lineage in lineages:
 all_klr_samples = [sample for lineages in all_lineages_samples for sample in lineages] # flattened list
 
 # check for dupes
-## TODO: THIS USED TO HAVE A DUPLICATE SHOW UP
 print("Checking for duplicates...")
 for i in tqdm(range(len(all_klr_samples))):
     for j in range(len(all_klr_samples)):
         if all_klr_samples[i].biosample == all_klr_samples[j].biosample:
             if all_klr_samples[i].known_lineage_id != all_klr_samples[j].known_lineage_id:
-                print(f"WARNING: Found {all_klr_samples[i].biosample} in {all_klr_samples[i].known_lineage_id} and {all_klr_samples[j].known_lineage_id}")
-
+                logging.warning(f"Found {all_klr_samples[i].biosample} in {all_klr_samples[i].known_lineage_id} and {all_klr_samples[j].known_lineage_id}")
  
 # write per-lineage outputs
 print(tabulate(all_lineages_information, headers=["lineage", "samples", "VCFs", "diffs", "% VCF"]))
@@ -212,7 +225,7 @@ for randrun in tqdm(randruns):
     #bams = [filename for filename in files if filename.endswith(".bam")]
     tbprf = [filename for filename in files if filename.endswith(".json")]
     if randrun == "rescue_rescue_redo":
-        print("Warning: No input file for rescue_rescue_redo. Will be using the GitHub mirror for all checks.")
+        print("Note: No input file for rescue_rescue_redo. Will be using the GitHub mirror for all checks.")
         with open("./rand_runs/rescue_rescue_redo/rescue_rescue_redo_GitHub.txt", "r") as sample_file:
             samples = [x.strip("\n") for x in sample_file.readlines()]
     else:
@@ -287,57 +300,49 @@ all_rand_samples = [sample for randruns in all_randruns_samples for sample in ra
 
 if not skip_dupe_check: 
     rand_dupes_to_delete = []
-    print("Checking for duplicates (this will take a while)...")
-    for i in tqdm(range(len(all_rand_samples))):
+    print("Checking for duplicates (this will take at least ten minutes)...")
+    for i in tqdm(range(len(all_rand_samples)), bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}, {elapsed} elapsed"):
         for j in range(len(all_rand_samples)):
             if all_rand_samples[i].biosample == all_rand_samples[j].biosample:
-                if all_rand_samples[i].randrun != all_rand_samples[j].randrun:
+                if all_rand_samples[i].randrun_id != all_rand_samples[j].randrun_id:
                     # these are duplicates -- find out which one is better
                     if all_rand_samples[i].varcalled is True and all_rand_samples[j].varcalled is False:
+                        logging.info(f"Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun_id} and {all_rand_samples[j].randrun_id}")
+                        logging.info(f"\tChose {all_rand_samples[i].randrun_id} because it has a VCF and the other one does not")
                         rand_dupes_to_delete.append(all_rand_samples[j])
                     elif all_rand_samples[i].varcalled is False and all_rand_samples[j].varcalled is True:
+                        logging.info(f"Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun_id} and {all_rand_samples[j].randrun_id}")
+                        logging.info(f"\tChose {all_rand_samples[j].randrun_id} because it has a VCF and the other one does not")
                         rand_dupes_to_delete.append(all_rand_samples[i])
                     elif all_rand_samples[i].tbprof is True and all_rand_samples[j].tbprof is False:
+                        logging.info(f"Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun_id} and {all_rand_samples[j].randrun_id}")
+                        logging.info(f"\tChose {all_rand_samples[i].randrun_id} because it has TBProfiler information and the other one does not")
                         rand_dupes_to_delete.append(all_rand_samples[j])
                     elif all_rand_samples[i].tbprof is False and all_rand_samples[j].tbprof is True:
+                        logging.info(f"Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun_id} and {all_rand_samples[j].randrun_id}")
+                        logging.info(f"\tChose {all_rand_samples[j].randrun_id} because it has TBProfiler information and the other one does not")
                         rand_dupes_to_delete.append(all_rand_samples[i])
                     else:
-                        #print(f"Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun} and {all_rand_samples[j].randrun} but they seem very similar.")
+                        logging.info(f"Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun_id} and {all_rand_samples[j].randrun_id} but they seem very similar... deleting one at random")
                         rand_dupes_to_delete.append(all_rand_samples[j]) # delete one at random
-                    #print(f"WARNING: Found {all_rand_samples[i].biosample} in {all_rand_samples[i].randrun} and {all_rand_samples[j].randrun}")
     
     unique_rand_samples = []
     for sample in all_rand_samples:
         if sample not in rand_dupes_to_delete:
             unique_rand_samples.append(sample)
             
-    # write task-level outputs
+    # write sample-level outputs
+    with open("tba3_all_samples_no_dupes.tsv", "w") as thingy:
+        thingy.write("BioSample\trandrun_id\t\tVCF?\tdiff?\tTBProf?\tmapped\tmednCov\tlineage\n")
     for sample in tqdm(unique_rand_samples):
         sample.to_file("tba3_all_samples_no_dupes.tsv")
 else:
-    # write task-level outputs
+    # write sample-level outputs
+    with open("tba3_all_samples.tsv", "w") as thingy:
+        thingy.write("BioSample\trandrun_id\t\tVCF?\tdiff?\tTBProf?\tmapped\tmednCov\tlineage\n")
     for sample in tqdm(all_rand_samples):
         sample.to_file("tba3_all_samples.tsv")
     
 
 # write run-level outputs -- this will include dupes unfortunately
 print(tabulate(all_randruns_information, headers=["lineage", "samples", "VCFs", "diffs", "TBProf strain", "% VCF"]))
-
-
-
-
-
-
-# process lineages from JSONs
-""" lazy_array_of_strings_to_write = []
-for file in os.listdir("./rand_runs/rand12344"):
-    if file.endswith(".json"):
-        sample = file.rstrip("._to_Ref.H37Rv.bam.results.json")
-        with open(f"rand12344/{file}") as thisjson:
-            data = json.load(thisjson)
-            strain = data["sublin"]
-            lazy_array_of_strings_to_write.append(f"{sample}\t{strain}\n")
-
-with open("strains_from_jsons.tsv", "w") as outfile:
-    for thingy in lazy_array_of_strings_to_write:
-        outfile.write(thingy) """
