@@ -37,6 +37,8 @@ parser.add_argument('-e', '--exclude', required=False, \
     help='file of gs URIs (one per line) to exclude when downloading')
 parser.add_argument('--small-steps', required=False, action='store_true', \
     help='download files in batches of fifty (not recommended if you are downloading more than about 300 files in total)')
+parser.add_argument('-f', '--exceptions_file', required=False, default="failed_to_download.txt", \
+    help='log file listing all files that failured to download (may be inaccurate if recursing)')
 
 option_a = parser.add_argument_group("""\n
                                             Option A:
@@ -114,7 +116,7 @@ def grab_gs_address(single_line_string):
         else:
             return result
 
-def determine_what_downloaded(stderr_as_multi_line_string):
+def determine_what_downloaded(stderr_as_multi_line_string, exceptions_file):
     '''Returns a list of lists. The first list is the gs URIs that successfully DL'd.
     The second list is the gs URIs that failed. Both will be written to files.'''
     # called by parse_gsutil_stderr and main
@@ -136,8 +138,12 @@ def determine_what_downloaded(stderr_as_multi_line_string):
     exceptions_set = list_to_set_consistently(exceptions)
     probable_successes_set = list_to_set_consistently(probable_successes)
     known_successes_set = probable_successes_set - exceptions_set
-    with open("failed_to_download.txt", "a") as f:
-        f.writelines(f"{uri}\n" for uri in list(exceptions_set))
+    try:
+        with open(exceptions_file, "a") as f:
+            f.writelines(f"{uri}\n" for uri in list(exceptions_set))
+    except FileNotFoundError:
+        with open(exceptions_file, "w") as f:
+            f.writelines(f"{uri}\n" for uri in list(exceptions_set))
     with open("downloaded_successfully.txt", "a") as f:
         f.writelines(f"{uri}\n" for uri in list(known_successes_set))
     return [list(known_successes_set), exceptions]
@@ -148,7 +154,7 @@ def parse_gsutil_stderr(stderr_file):
         stderr_as_multiline_string = "\n".join([line for line in list_of_lines])
         return determine_what_downloaded(stderr_as_multiline_string)
 
-def read_file(thingy):
+def read_jm_file(thingy):
     '''Reads input file for the JM (option A) use case, and the exclusion file for both use cases.'''
     gs_addresses = []
     with open(thingy) as f:
@@ -159,8 +165,10 @@ def read_file(thingy):
             if line.endswith(']'):
                 line = line[:-1]
             line = re.sub(',', ' ', line)
-            gs_addresses.append(line)
-    return gs_addresses
+            list_of_files = line.split('  ')  # Terra puts two spaces between each URI
+            gs_addresses.append(list_of_files)
+    gs_addresses_flat = [uri for line_of_uris in gs_addresses for uri in line_of_uris]
+    return gs_addresses_flat
 
 def retrieve_data(gs_addresses: list):
     ''' Actually pull gs:// addresses, after checking it's not too many at a time. This function
@@ -202,25 +210,61 @@ def retrieve_data(gs_addresses: list):
         # for some reason gsutil puts everything in stderr and nothing in stdout, so we have to do a lot of parsing to find CommandExceptions
         # todo: we could do even more parsing and subprocess.check_call to maybe get gsutil's progress bars!
         # see: https://stackoverflow.com/questions/33028298/prevent-string-being-printed-python
-        successes_and_exceptions = determine_what_downloaded(this_download.stderr)
+
+        # write gsutil stderr to a file, so we can parse it when recursing
+        with open("gsutil.stderr", "w") as f:
+            for line in this_download.stderr:
+                f.write(line)
+
+        # we don't need to parse the file we just wrote here since we still have this_download.stderr in memory
+        successes_and_exceptions = determine_what_downloaded(this_download.stderr, exceptions_file=args.exceptions_file)
         successes = successes_and_exceptions[0]
         exceptions = successes_and_exceptions[1]
         global_successes.append(successes)
+        print(f"Attempted {len(gs_addresses)} downloads: {len(successes)} succeeded, {len(exceptions)} failed, gsutil returned {this_download.returncode}.")
+
+        # check for attempt-2/ if any downloads failed
         if len(exceptions) > 0 and args.job_manager_arrays_file != "attempt2.tmp" and not args.do_not_attempt2_on_failure:
-            print(f"Attempted {len(gs_addresses)} downloads: {len(successes)} succeeded, {len(exceptions)} failed, gsutil returned {this_download.returncode}.")
-            print(f"Looking for files in attempt-2/ folders...")
+            print(f"Looking for {len(exceptions)} files in attempt-2/ folders...")
             with open("attempt2.tmp", "a") as f:
                 for failed_gs_uri in exceptions:
                     possible_output_after_preempting = failed_gs_uri.removesuffix(args.file) + "attempt-2/" + args.file + "\n"
                     f.write(possible_output_after_preempting)
             # this call mixes a group A and a group B input variable -- but we'll allow that because it helps stop us from recursing infinitely
-            with subprocess.Popen(f'python3 pyoink.py --job_manager_arrays_file attempt2.tmp', shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as recurse:
+            with subprocess.Popen(f'python3 pyoink.py -f "attempt-2-exceptions.txt" --job_manager_arrays_file "attempt2.tmp"', shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as recurse:
                 for output in recurse.stdout:
-                    print(f'--->{output.decode("UTF-8")}')
+                    print(f'-p->{output.decode("UTF-8")}')
+                
+                # get success and exceptions from attempt-2
+                with open("gsutil.stderr", "r") as f:
+                    attempt_2_stderr = f.read()
+                attempt_2_successes_and_exceptions = determine_what_downloaded(attempt_2_stderr, exceptions_file="attempt-2-exceptions.txt")
+                attempt_2_successes = attempt_2_successes_and_exceptions[0]
+                attempt_2_exceptions = attempt_2_successes_and_exceptions[1]
+                global_successes.append(attempt_2_successes)
+            
             subprocess.run('rm attempt2.tmp', shell=True)
             print("Finished checking for attempt 2.")
+            print(f"Attempted {len(exceptions)} downloads: {len(attempt_2_successes)} succeeded, {len(attempt_2_exceptions)} failed.")
+        
+            # check for call-cache/ if any attempt-2/ downloads failed
+            if len(attempt_2_exceptions) > 0:
+                print(f"Looking for {len(attempt_2_exceptions)} files in cacheCopy/ folders...")
+                with open("cache_copy.tmp", "a") as f:
+                    for failed_gs_uri in attempt_2_exceptions:
+                        possible_output_if_call_cached = failed_gs_uri.removesuffix(args.file).removesuffix("attempt-2/") + "cacheCopy/" + args.file + "\n"
+                        f.write(possible_output_if_call_cached)
+                # this call mixes a group A and a group B input variable -- but we'll allow that because it helps stop us from recursing infinitely
+                with subprocess.Popen(f'python3 pyoink.py --job_manager_arrays_file cache_copy.tmp --do_not_attempt2_on_failure', shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as recurse:
+                    for output in recurse.stdout:
+                        print(f'--c-->{output.decode("UTF-8")}')
+                subprocess.run('rm cache_copy.tmp', shell=True)
+                print("Finished checking for call cached outputs.")
+
         else:
-            print(f"Attempted {len(gs_addresses)} downloads: {len(successes)} succeeded, {len(exceptions)} failed, gsutil returned {this_download.returncode}.")
+            pass
+            #print(f"Attempted {len(gs_addresses)} downloads: {len(successes)} succeeded, {len(exceptions)} failed, gsutil returned {this_download.returncode}.")
+
 
 
 if __name__ == '__main__':
@@ -230,7 +274,7 @@ if __name__ == '__main__':
         if args.submission_id is not None or args.workflow_id is not None:
             raise Exception("jm was passed in, but so was submission and/or workflow ids (see --help)")
         else:
-            gs_addresses = read_file(jm)
+            gs_addresses = read_jm_file(jm)
     else:
         # option B
         # make sure all non-default option B args are set
@@ -257,7 +301,7 @@ if __name__ == '__main__':
     # get rid of anything that should be excluded
     if args.exclude is not None:
         all = set(gs_addresses)
-        exclude = set(read_file(args.exclude))
+        exclude = set(read_jm_file(args.exclude))
         include = all - exclude
         if verbose:
             print(f"{len(all)} possible URIs detected.")
