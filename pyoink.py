@@ -56,7 +56,24 @@ option_b = parser.add_argument_group("""\n
                                     ***************************""",
                                     """If you cannot load Job Manager, define the listed arguments
                                     to pull your outputs. Unlike option A, only one task's outputs 
-                                    at a time are supported.""")
+                                    at a time are supported.\n
+                                    
+                                    Let's say pyoink detects 5000 shards in a task and is looking for 
+                                    a file with the extension bam. After getting the first 499 shards 
+                                    (50 if small-steps), and assuming not_scattered, cacheCopy, glob,
+                                    and do_not_attempt2_on_failure are all on their default false, 
+                                    pyoink will search for outputs in this order:\n
+                                    1. Regular outputs:\n
+                                    gs://bucket/submissions/submission_id/workflow_name/workflow_id/call_task/shard-xxx/*.bam\n
+                                    2. Outputs after an initial failure (common if using preemptibles):\n
+                                    gs://bucket/submissions/submission_id/workflow_name/workflow_id/call_task/shard-xxx/attempt-2/*.bam\n
+                                    3. Call cached outputs:\n
+                                    gs://bucket/submissions/submission_id/workflow_name/workflow_id/call_task/shard-xxx/cacheCopy/*.bam\n
+                                    
+                                    If #1 successfully download 490 files, then the 10 failures will move on to #2. 
+                                    If 5 files fail #2, then those 5 failures will move on to #3.
+                                    
+                                    It's simple! (Kind of.)""")
 option_b.add_argument('--bucket', default="fc-caa84e5a-8ef7-434e-af9c-feaf6366a042", help="workspace bucket")
 option_b.add_argument('--submission_id', help="submission ID as it appears in Terra")
 option_b.add_argument('--workflow_name', default="myco", help="""name of workflow as it appears in the WDL
@@ -65,12 +82,14 @@ option_b.add_argument('--workflow_name', default="myco", help="""name of workflo
                                                     of the WDL.""")
 option_b.add_argument('--workflow_id', help="ID of workflow as it appears in Terra")
 option_b.add_argument('--task', default="make_mask_and_diff", help="name of WDL task")
-option_b.add_argument('--file', default="*.diff", help="filename (asterisks are supported)")
+option_b.add_argument('--file', default="*.diff", help="filename (wildcards and subfolders below the workdir are supported, e.g. outputs/*.bam)")
 
 option_b.add_argument('--not_scattered', action="store_true", help="outputs are not from a scattered task (skips running gsutil ls)")
-option_b.add_argument('--cacheCopy', action="store_true", help="is this output cached from a previous run?")
+option_b.add_argument('--cacheCopy', action="store_true", help="""(do not use unless you know what you're doing) are *all* outputs definitely
+                                                                in callCache folders? if only some of your outputs are in callCache folders,
+                                                                leave this variable alone.""")
 option_b.add_argument('--glob', action="store_true", help="does this output make use of WDL's glob()?")
-option_b.add_argument('--do_not_attempt2_on_failure', action="store_true", help="do not check for attempt-2 folders (ie, assume your task is not using preemptibles)")
+option_b.add_argument('--do_not_attempt2_on_failure', action="store_true", help="(do not use unless you know what you're doing) do not check for attempt-2 folders (ie, assume your task is not using preemptibles) nor callCache")
 
 args = parser.parse_args()
 od = args.output_directory
@@ -284,7 +303,6 @@ if __name__ == '__main__':
             path = f"gs://{args.bucket}/submissions/{args.submission_id}/{args.workflow_name}/{args.workflow_id}/call-{args.task}/"
             base = []
             if args.cacheCopy == True: base.append("cacheCopy/")
-            #if args.attempt2 == True: base.append("attempt-2/")
             if args.glob == True: base.append("glob*/")
             base.append(f"{args.file}")
             if args.not_scattered == False:
