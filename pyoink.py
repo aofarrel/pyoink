@@ -214,7 +214,7 @@ def retrieve_data(gs_addresses: list, depth=0, batch=0):
     is recursive if a lot of files need to be downloaded.'''
     uris_as_string = " ".join(gs_addresses)
 
-    if verbose: print(f"{indent(depth,batch)}Processing {len(gs_addresses)} gs_addresses")
+    if verbose: print(f"{indent(depth, batch)}Processing {len(gs_addresses)} gs_addresses")
 
     # first check for gsutil's 1000 argument limit (checks LIST length, not string length)
     if len(gs_addresses) > 998:
@@ -223,7 +223,7 @@ def retrieve_data(gs_addresses: list, depth=0, batch=0):
         batch = 0
         for smallish_list_of_uris in list_of_smallish_lists_of_uris:
             batch += 1
-            if verbose: print(f"{fill_with('    ', depth)}{fill_with('+', batch)}Batch {batch} out of {len(list_of_smallish_lists_of_uris)}:")
+            if verbose: print(f"{indent(depth, batch)}Batch {batch} out of {len(list_of_smallish_lists_of_uris)}:")
             if veryverbose: print(f"Downloading this subset:\n {smallish_list_of_uris}")
             retrieve_data(smallish_list_of_uris, depth=depth+1, batch=batch)
     
@@ -234,7 +234,7 @@ def retrieve_data(gs_addresses: list, depth=0, batch=0):
         batch = 0
         for smallish_list_of_uris in list_of_smallish_lists_of_uris:
             batch += 1
-            if verbose: print(f"{fill_with('    ', depth)}{fill_with('+', batch)}Batch {batch} out of {len(list_of_smallish_lists_of_uris)}:")
+            if verbose: print(f"{indent(depth, batch)}Batch {batch} out of {len(list_of_smallish_lists_of_uris)}:")
             if veryverbose: print(f"Downloading this subset:\n {smallish_list_of_uris}")
             retrieve_data(smallish_list_of_uris, depth=depth+1, batch=batch)
     
@@ -245,7 +245,7 @@ def retrieve_data(gs_addresses: list, depth=0, batch=0):
         batch = 0
         for smallish_list_of_uris in list_of_smallish_lists_of_uris:
             batch += 1
-            if verbose: print(f"{fill_with('    ', depth)}{fill_with('+', batch)}Batch {batch} out of {len(list_of_smallish_lists_of_uris)}:")
+            if verbose: print(f"{indent(depth, batch)}Batch {batch} out of {len(list_of_smallish_lists_of_uris)}:")
             if veryverbose: print(f"Downloading this subset:\n {smallish_list_of_uris}")
             retrieve_data(smallish_list_of_uris, depth=depth+1, batch=batch)
    
@@ -253,9 +253,9 @@ def retrieve_data(gs_addresses: list, depth=0, batch=0):
     else:
         command = f"gsutil -m cp {uris_as_string} {od}"
         if veryverbose:
-            print(f"{fill_with('    ', depth)}{fill_with('+', batch)}Attempting to download {len(gs_addresses)} files via the following command:\n {command}\n\n")
+            print(f"{indent(depth, batch)}Attempting to download {len(gs_addresses)} files via the following command:\n {command}\n\n")
         else:
-            print(f"{fill_with('    ', depth)}{fill_with('+', batch)}Downloading {len(gs_addresses)} files, please wait...")
+            print(f"{indent(depth, batch)}Downloading {len(gs_addresses)} files, please wait...")
         this_download = subprocess.run(f'gsutil -m cp {uris_as_string} {od}', shell=True, capture_output=True, encoding="UTF-8")
         # for some reason gsutil puts everything in stderr and nothing in stdout, so we have to do a lot of parsing to find CommandExceptions
         # todo: we could do even more parsing and subprocess.check_call to maybe get gsutil's progress bars!
@@ -273,11 +273,11 @@ def retrieve_data(gs_addresses: list, depth=0, batch=0):
         successes = successes_and_exceptions[0]
         exceptions = successes_and_exceptions[1]
         global_successes.append(successes)
-        print(f"{fill_with('    ', depth)}{fill_with('+', batch)}Attempted {len(gs_addresses)} downloads: {len(successes)} succeeded, {len(exceptions)} failed, gsutil returned {this_download.returncode}.")
+        print(f"{indent(depth, batch)}Attempted {len(gs_addresses)} downloads: {len(successes)} succeeded, {len(exceptions)} failed, gsutil returned {this_download.returncode}.")
 
         # check for attempt-2/ if any downloads failed
         if len(exceptions) > 0 and args.job_manager_arrays_file != "attempt2.tmp" and not args.do_not_attempt2_on_failure:
-            print(f"{fill_with('    ', depth)}{fill_with('+', batch)}Looking for {len(exceptions)} files in attempt-2/ folders...")
+            print(f"{indent(depth, batch)}Looking for {len(exceptions)} files in attempt-2/ folders...")
             if veryverbose: debug_count_lines("attempt2.tmp", "just before overwrite")
 
             with open("attempt2.tmp", "w") as f:
@@ -287,9 +287,9 @@ def retrieve_data(gs_addresses: list, depth=0, batch=0):
             if veryverbose: debug_count_lines("attempt2.tmp", "just after overwrite")
             
             # this call mixes a group A and a group B input variable -- but we'll allow that because it helps stop us from recursing infinitely
-            with subprocess.Popen(f'python3 pyoink.py -f "attempt-2-exceptions.txt" --job_manager_arrays_file "attempt2.tmp" --do_not_attempt2_on_failure', shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as recurse:
+            with subprocess.Popen(f'python3 pyoink.py -v -f "attempt-2-exceptions.txt" --job_manager_arrays_file "attempt2.tmp" --do_not_attempt2_on_failure', shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as recurse:
                 for output in recurse.stdout:
-                    print(f'{fill_with("    ", depth+1)}{fill_with("+", batch)}{output.decode("UTF-8")}')
+                    print(f'{indent(depth, batch)}{output.decode("UTF-8")}')
                 if veryverbose: debug_count_lines("gsutil.stderr", "just before read in attempt-2 block")
                 
                 # get success and exceptions from attempt-2
@@ -301,18 +301,19 @@ def retrieve_data(gs_addresses: list, depth=0, batch=0):
                 global_successes.append(attempt_2_successes)
             if veryverbose: debug_count_lines("attempt2.tmp", "just before deletion")
             subprocess.run('rm attempt2.tmp', shell=True)
+            subprocess.run('rm gsutil.stderr', shell=True)
 
             # check for call-cache/ if any attempt-2/ downloads failed
             if len(attempt_2_exceptions) > 0:
-                print(f"{fill_with('    ', depth)}{fill_with('+', batch)}Looking for {len(attempt_2_exceptions)} files in cacheCopy/ folders...")
+                print(f"{indent(depth, batch)}Looking for {len(attempt_2_exceptions)} files in cacheCopy/ folders...")
                 with open("cache_copy.tmp", "a") as f:
                     for failed_gs_uri in attempt_2_exceptions:
                         possible_output_if_call_cached = failed_gs_uri.removesuffix(args.file).removesuffix("attempt-2/") + "cacheCopy/" + args.file + "\n"
                         f.write(possible_output_if_call_cached)
                 # this call mixes a group A and a group B input variable -- but we'll allow that because it helps stop us from recursing infinitely
-                with subprocess.Popen(f'python3 pyoink.py --job_manager_arrays_file cache_copy.tmp --do_not_attempt2_on_failure -v', shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as recurse:
+                with subprocess.Popen(f'python3 pyoink.py -v --job_manager_arrays_file cache_copy.tmp --do_not_attempt2_on_failure', shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as recurse:
                     for output in recurse.stdout:
-                        print(f'{fill_with("    ", depth+1)}{fill_with("+", batch)}{output.decode("UTF-8")}')
+                        print(f'{indent(depth, batch)}{output.decode("UTF-8")}')
                 subprocess.run('rm cache_copy.tmp', shell=True)
 
         else:
@@ -322,7 +323,6 @@ def retrieve_data(gs_addresses: list, depth=0, batch=0):
 
 
 if __name__ == '__main__':
-    if verbose: "Welcome to pyoink!"
     if jm is not None:
         # option A
         # make sure the user isn't trying to use options A and B
