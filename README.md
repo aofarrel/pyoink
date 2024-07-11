@@ -17,3 +17,21 @@
 If Job Manager refuses to load, you can enter the `--bucket`, `--submission_id`, `--task`, `--workflow_id`, and `--workflow_name` to sniff out the `--file` you're looking for, across any and all shards. If output basenames vary by shard, you can use wildcards, such as `results/*.json` or `*.vcf`. However, if outputs make use of WDL's `glob()` feature, make sure to also set `--glob`. By default it will be assumed your task is scattered, if not, use the `--notscattered` flag.
 
 Because option B uses a lot of `gsutil ls` commands, it is slower than option A and may incur some additional costs.
+
+## caveats
+If you have multiple files with the same basename, they will simply overwrite each other. [This is a limitation of gsutil itself](https://github.com/GoogleCloudPlatform/gsutil/issues/372).
+
+There are rare circumstances where some output is generated, but then the VM gets prempted during delocalization. This may result in a structure like this:
+📁 shard-64
+|-SAMEA10029809.decontam.counts.tsv
+|-SAMEA10029809_2.decontam.fq.gz
+|-fastp_decontam_check-64.log
+|-📁 attempt-2
+|--SAMEA10029809.decontam.counts.tsv
+|--SAMEA10029809_1.decontam.fq.gz
+|--SAMEA10029809_2.decontam.fq.gz
+|--fastp_decontam_check-64.log
+
+If you were to glob on `*decontam*` as your `--file`, you would end up with only SAMEA10029809.decontam.counts.tsv and SAMEA10029809_2.decontam.fq.gz, never picking up SAMEA10029809_1.decontam.fq.gz as pyoink found at least one file to satisfy the glob and would not attempt to search for an attempt-2 folder.
+
+

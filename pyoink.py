@@ -188,6 +188,7 @@ def debug_count_lines(some_file, notes):
         print(f"Tried to read {some_file} w/ circumstances {notes} but file wasn't found")
 
 def parse_gsutil_stderr(stderr_file):
+    '''Parses the gsutil stderr file, not to be confused with WDL workflow stderr files'''
     with open(stderr_file) as f:
         list_of_lines = f.readlines()
         stderr_as_multiline_string = "\n".join([line for line in list_of_lines])
@@ -253,9 +254,9 @@ def retrieve_data(gs_addresses: list, depth=0, batch=0):
     else:
         command = f"gsutil -m cp {uris_as_string} {od}"
         if veryverbose:
-            print(f"{indent(depth, batch)}Attempting to download {len(gs_addresses)} files via the following command:\n {command}\n\n")
+            print(f"{indent(depth, batch)}Attempting to download {len(gs_addresses)} addresses via the following command:\n {command}\n\n")
         else:
-            print(f"{indent(depth, batch)}Downloading {len(gs_addresses)} files, please wait...")
+            print(f"{indent(depth, batch)}Downloading {len(gs_addresses)} addresses, please wait...")
         this_download = subprocess.run(f'gsutil -m cp {uris_as_string} {od}', shell=True, capture_output=True, encoding="UTF-8")
         # for some reason gsutil puts everything in stderr and nothing in stdout, so we have to do a lot of parsing to find CommandExceptions
         # todo: we could do even more parsing and subprocess.check_call to maybe get gsutil's progress bars!
@@ -273,7 +274,7 @@ def retrieve_data(gs_addresses: list, depth=0, batch=0):
         successes = successes_and_exceptions[0]
         exceptions = successes_and_exceptions[1]
         global_successes.append(successes)
-        print(f"{indent(depth, batch)}Attempted {len(gs_addresses)} downloads: {len(successes)} succeeded, {len(exceptions)} failed, gsutil returned {this_download.returncode}.")
+        print(f"{indent(depth, batch)}Attempted {len(gs_addresses)} addresses: {len(successes)} files downloaded, {len(exceptions)} expected files failed, gsutil returned {this_download.returncode}.")
 
         # check for attempt-2/ if any downloads failed
         if len(exceptions) > 0 and args.job_manager_arrays_file != "attempt2.tmp" and not args.do_not_attempt2_on_failure:
