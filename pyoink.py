@@ -37,6 +37,8 @@ parser.add_argument('-e', '--exclude', required=False, \
     help='file of gs URIs (one per line) to exclude when downloading')
 parser.add_argument('--small-steps', required=False, action='store_true', \
     help='download files in batches of fifty (not recommended if you are downloading more than about 300 files in total)')
+parser.add_argument('-r', '--single_step_with_rename', required=False, action='store_true', \
+    help='download each file (or shard if using option B with * in --file) alone, append the shard number to it, then download the next file/shard')
 parser.add_argument('-f', '--exceptions_file', required=False, default="failed_to_download.txt", \
     help='log file listing all files that failured to download (may be inaccurate if recursing)')
 
@@ -192,7 +194,7 @@ def parse_gsutil_stderr(stderr_file):
     with open(stderr_file) as f:
         list_of_lines = f.readlines()
         stderr_as_multiline_string = "\n".join([line for line in list_of_lines])
-        return determine_what_downloaded(stderr_as_multiline_string)
+        return determine_what_downloaded(stderr_as_multiline_string, exceptions_file=args.exceptions_file)
 
 def read_jm_file(thingy):
     '''Reads input file for the JM (option A) use case, and the exclusion file for both use cases.'''
@@ -213,7 +215,12 @@ def read_jm_file(thingy):
 def retrieve_data(gs_addresses: list, depth=0, batch=0):
     ''' Actually pull gs:// addresses, after checking it's not too many at a time. This function
     is recursive if a lot of files need to be downloaded.'''
-    uris_as_string = " ".join(gs_addresses)
+    if len(gs_addresses) > 1:
+        uris_as_string = " ".join(gs_addresses)
+    elif len(gs_addresses) == 1:
+        uris_as_string = gs_addresses[0]
+    else:
+        raise ValueError(f"Invalid length for gs_addresses: {len(gs_addresses)}")
 
     if verbose: print(f"{indent(depth, batch)}Processing {len(gs_addresses)} gs_addresses")
 
@@ -365,6 +372,19 @@ if __name__ == '__main__':
         download_me = list(include)
     else:
         download_me = gs_addresses
-    #global expected_number_of_downloads = len(download_me)
-    retrieve_data(download_me)
+
+    if args.single_step_with_rename:
+        for uri_to_dl in download_me:
+            if veryverbose: print(f"Downloading {uri_to_dl}")
+            retrieve_data([uri_to_dl])
+            uris_successfully_dled = parse_gsutil_stderr('gsutil.stderr')[0] # will be overwritten every iteration
+            for uri_success in uris_successfully_dled:
+                regex_shard, regex_basename = re.compile("shard-\d+"), re.compile("[^/]+$")
+                print(uri_success)
+                shard = str(regex_shard.findall(uri_success)[0])
+                basename = str(regex_basename.findall(uri_success)[0])
+                os.rename(basename, f'{shard}_{basename}')
+                if veryverbose: print(f"Renamed {basename} to {shard}_{basename}")
+    else:
+        retrieve_data(download_me)
 
